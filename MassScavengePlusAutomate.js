@@ -1520,7 +1520,7 @@
         const root = $(`
 <div id="${APP.id}" class="msp-compact">
     <div class="msp-header">
-        <div class="msp-title">Mass Scavenge+ <span class="msp-version">v${APP.version}</span></div>
+        <div class="msp-title">Mass Scavenge+ Automate <span class="msp-version">v0.2 SIM</span></div>
         <div class="msp-spacer"></div>
         <button class="msp-btn msp-btn-secondary msp-btn-icon" id="mspSettingsBtn" title="Einstellungen">⚙</button>
         <button class="msp-btn msp-btn-danger msp-btn-icon" id="mspCloseBtn" title="Schließen">✕</button>
@@ -2738,7 +2738,7 @@
 
         const enabledUnits = config.unitOrder.filter(unit => config.unitEnabled[unit]).length;
         $('#mspStatusTroops').text(`${enabledUnits} Truppen`);
-        $('#mspStatusCategories').text(`${activeCategoryCount()}/4 Kategorien`);
+        $('#mspStatusCategories').text('Kategorien: automatisch');
 
         if (currentScavengeInfo.length) {
             const selected = villageSelectionInitialized
@@ -4340,6 +4340,27 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         }
     }
 
+    function applyAutomateSlimUi() {
+        const root = $(`#${APP.id}`);
+        if (!root.length) return;
+
+        // In Automate entscheidet das Script selbst über die Sammelkategorien
+        // und berechnet/versendet (in dieser Version nur simuliert) im eigenen Zyklus.
+        $('#mspCategoriesPanel').remove();
+        $('#mspCalculatePanel').remove();
+        $('#mspPreviewPanel').remove();
+
+        // Verbliebene Bereiche für die Automate-Oberfläche neu nummerieren.
+        $('#mspTroopsPanel > .msp-panel-title').first().contents().first()[0].textContent = '1. Truppen & Reserven ';
+        $('#mspDistributionPanel > .msp-panel-title').first().contents().first()[0].textContent = '2. Verteilung ';
+        $('#mspTimePanel > .msp-panel-title').first().contents().first()[0].textContent = '3. Laufzeit / Rückkehr ';
+        $('#mspVillagesPanel > .msp-panel-title').first().contents().first()[0].textContent = '4. Dörfer ';
+        $('#mspAnalysisPanel > .msp-panel-title').first().contents().first()[0].textContent = '5. Analyse ';
+
+        $('#mspVillageSummary').html('<span class="msp-village-chip">Automate lädt die Dörfer bei jedem Zyklus frisch. Die optionale Dorfwahl bleibt erhalten.</span>');
+        $('#mspStatusCategories').text('Kategorien: automatisch');
+    }
+
     function initAutomateSimulation() {
         const root = $(`#${APP.id}`);
         if (!root.length || $('#mspAutoPanel').length) return;
@@ -4354,7 +4375,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                     </div>
                     <div id="mspAutoState" style="font-weight:bold;margin-bottom:3px;">Bereit</div>
                     <div id="mspAutoNext" style="font-size:11px;margin-bottom:6px;">Nächster Check: —</div>
-                    <div style="font-size:11px;margin-bottom:6px;">Kategorien: automatisch alle verfügbaren. Reichen die Truppen nicht, werden schwächere Kategorien automatisch weggelassen.</div>
+                    <div style="font-size:11px;margin-bottom:6px;">Kategorien: immer automatisch alle verfügbaren. Reichen die Truppen nicht für alle, wird die jeweils schwächste Kategorie weggelassen und neu gerechnet.</div>
                     <pre id="mspAutoLog" style="height:210px;overflow:auto;white-space:pre-wrap;background:#1f1f1f;color:#eee;padding:8px;border-radius:5px;margin:0;font:11px/1.4 Consolas,monospace;"></pre>
                 </div>
             </div>`);
@@ -4370,6 +4391,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         readCategoryNamesFromPage();
         config = loadConfig();
         renderApp();
+        applyAutomateSlimUi();
         prepareCollapsiblePanels();
         bindUiComfortEvents();
         startSafePositionGuard();
