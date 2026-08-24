@@ -4156,7 +4156,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
 
     /* =========================================================
-       Mass Scavenge+ Automate – Autopilot v1.0.0
+       Mass Scavenge+ Automate – Autopilot v1.0.1
        - Simulation und echter Autopilot nutzen dieselbe getestete Planungslogik
        - nutzt automatisch alle freien/freigeschalteten Kategorien
        - jeder einzelne Auftrag braucht mindestens 10 Bauernhofplätze
@@ -4556,27 +4556,47 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
     }
 
     function autoStart(mode = 'sim') {
-        if (AUTO.running) return;
-        AUTO.mode = mode === 'live' ? 'live' : 'sim';
+        try {
+            if (AUTO.running) {
+                autoLog('Start abgelehnt: Automate läuft bereits.');
+                return;
+            }
 
-        readFormIntoConfig();
-        config.categories = [true,true,true,true];
-        const times = getEffectiveTimes();
-        const validation = validateForm(times);
-        if (validation) return notifyError(validation);
+            AUTO.mode = mode === 'live' ? 'live' : 'sim';
+            readFormIntoConfig();
 
-        if (AUTO.mode === 'live') {
-            if (!confirmExtremeRuntime(times, 'Autopilot')) return;
-            const ok = confirm(
-                'ECHTEN Sammel-Autopilot starten?\n\n' +
-                'MassScavenge+ wird Sammelaufträge selbstständig absenden und nach Rückkehr automatisch neu planen.\n' +
-                'Vor jedem Versand werden die Serverdaten erneut geprüft.\n\n' +
-                'Mit OK startest du den echten Versand.'
-            );
-            if (!ok) return;
-        }
+            // Automate verwaltet die Kategorien selbst. Das Kategorien-Panel ist in
+            // dieser Oberfläche absichtlich entfernt und darf den Start nie blockieren.
+            config.categories = [true, true, true, true];
 
-        AUTO.running = true;
+            const times = getEffectiveTimes();
+            const validation = validateForm(times);
+            if (validation) {
+                autoLog(`❌ Start nicht möglich: ${validation}`);
+                autoUpdateStatus('Start blockiert');
+                notifyError(validation);
+                return;
+            }
+
+            if (AUTO.mode === 'live') {
+                if (!confirmExtremeRuntime(times, 'Autopilot')) {
+                    autoLog('Echter Autopilot wurde bei der Laufzeitwarnung abgebrochen.');
+                    return;
+                }
+
+                const ok = window.confirm(
+                    'ECHTEN Sammel-Autopilot starten?\n\n' +
+                    'MassScavenge+ wird Sammelaufträge selbstständig absenden und nach Rückkehr automatisch neu planen.\n' +
+                    'Vor jedem Versand werden die Serverdaten erneut geprüft.\n\n' +
+                    'Mit OK startest du den echten Versand.'
+                );
+                if (!ok) {
+                    autoLog('Echter Autopilot wurde vor dem Start abgebrochen.');
+                    return;
+                }
+            }
+
+            AUTO.running = true;
         AUTO.busy.clear();
         AUTO.serverBusyUntil = [];
         AUTO.log = [];
@@ -4596,7 +4616,17 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         } else {
             autoLog('Simulation gestartet. Es werden KEINE echten Sammelaufträge gesendet.');
         }
-        autoCycle();
+            autoCycle();
+        } catch (error) {
+            console.error('[MassScavenge+ Automate Start]', error);
+            const message = error?.message || String(error);
+            autoLog(`❌ Startfehler: ${message}`);
+            autoUpdateStatus('Startfehler');
+            try { notifyError(`Autopilot konnte nicht gestartet werden: ${message}`); } catch (_) {}
+            AUTO.running = false;
+            $('#mspAutoSimStart,#mspAutoLiveStart').prop('disabled', false);
+            $('#mspAutoStop').prop('disabled', true);
+        }
     }
 
     function autoStop(fromError = false) {
