@@ -48,7 +48,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.0.0',
+        version: '1.1.0',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -4156,11 +4156,12 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
 
     /* =========================================================
-       Mass Scavenge+ Automate – Autopilot v1.0.2
+       Mass Scavenge+ Automate – Autopilot v1.1.0
        - Simulation und echter Autopilot nutzen dieselbe getestete Planungslogik
        - nutzt automatisch alle freien/freigeschalteten Kategorien
        - jeder einzelne Auftrag braucht mindestens 10 Bauernhofplätze
        - reichen Truppen nicht, fällt jeweils die schwächste Kategorie weg und es wird neu gerechnet
+       - bündelt pro Dorf versetzt zurückkehrende Kategorien (Standard 10 Min.)
        - simuliert Belegung/Rückkehr und prüft kurz nach der nächsten Rückkehr
        ========================================================= */
     const AUTO = {
@@ -4178,7 +4179,13 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         sentGroups: 0,
         droppedCategories: 0,
         statusTimer: null,
-        serverBusyUntil: []
+        serverBusyUntil: [],
+        serverReturnByVillage: new Map(),
+        waitingVillages: new Map(),
+        bundleWindowMs: Math.max(
+            0,
+            Math.min(60, Number(localStorage.getItem('msp_automate_bundle_minutes') || 10))
+        ) * 60000
     };
 
 
@@ -4272,24 +4279,81 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         return n;
     }
 
+    function autoSquadReturnTimestamp(squad) {
+        if (!squad || squad.__msp_simulated) return 0;
+        const values = [
+            squad.return_time, squad.return_timestamp, squad.returnTime,
+            squad.end_time, squad.end_timestamp, squad.ends_at, squad.finish_time
+        ];
+        for (const value of values) {
+            const ts = autoNormalizeTimestamp(value);
+            if (ts > 0) return ts;
+        }
+        return 0;
+    }
+
     function autoCollectServerReturns(villages) {
         const found = [];
+        const byVillage = new Map();
         const now = Date.now();
+
         for (const village of villages || []) {
+            const villageId = String(village?.village_id ?? '');
+            if (!villageId) continue;
+            const returns = new Map();
+
             for (let category = 1; category <= 4; category++) {
                 const squad = village?.options?.[category]?.scavenging_squad;
-                if (!squad || squad.__msp_simulated) continue;
-                const values = [
-                    squad.return_time, squad.return_timestamp, squad.returnTime,
-                    squad.end_time, squad.end_timestamp, squad.ends_at, squad.finish_time
-                ];
-                for (const value of values) {
-                    const ts = autoNormalizeTimestamp(value);
-                    if (ts > now) { found.push(ts); break; }
+                const ts = autoSquadReturnTimestamp(squad);
+                if (ts > now) {
+                    found.push(ts);
+                    returns.set(category, ts);
                 }
             }
+
+            // Optimistische Belegung aus diesem Autopilot ergänzen, falls die
+            // frisch geladene Serverstruktur die Rückkehrzeit noch nicht enthält.
+            for (let category = 1; category <= 4; category++) {
+                if (returns.has(category)) continue;
+                const key = autoBusyKey(villageId, category);
+                const ts = Number(AUTO.busy.get(key) || 0);
+                if (ts > now) {
+                    found.push(ts);
+                    returns.set(category, ts);
+                }
+            }
+
+            if (returns.size) byVillage.set(villageId, returns);
         }
+
         AUTO.serverBusyUntil = found;
+        AUTO.serverReturnByVillage = byVillage;
+    }
+
+    function autoBundleDecision(village, now = Date.now()) {
+        const free = autoFreeCategories(village).sort((a,b) => a-b);
+        if (!free.length || !(AUTO.bundleWindowMs > 0)) return null;
+
+        const villageId = String(village?.village_id ?? '');
+        const returns = AUTO.serverReturnByVillage.get(villageId);
+        if (!returns || !returns.size) return null;
+
+        const limit = now + AUTO.bundleWindowMs;
+        const soon = [];
+        for (const [category, tsRaw] of returns.entries()) {
+            const ts = Number(tsRaw) || 0;
+            if (ts > now && ts <= limit) soon.push({ category:Number(category), ts });
+        }
+        if (!soon.length) return null;
+
+        // Bis zur letzten Kategorie warten, die innerhalb des Bündelungsfensters
+        // frei wird. Danach wird mit der dann realen Uhrzeit vollständig neu geplant.
+        const waitUntil = Math.max(...soon.map(x => x.ts));
+        return {
+            free,
+            waitUntil,
+            returningCategories: soon.sort((a,b) => a.ts - b.ts)
+        };
     }
 
     function autoMergePreview(target, source) {
@@ -4373,15 +4437,41 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
     function autoBuildPlan(villages, times, simulateBusy) {
         if (simulateBusy) autoOverlayBusy(villages);
+
+        // Bündelungsentscheidung braucht die aktuell bekannten Rückkehrzeiten,
+        // inklusive bereits laufender Server-Aufträge und eigener optimistischer Jobs.
+        autoCollectServerReturns(villages);
+
         currentScavengeInfo = villages;
         squadRequests = [];
         squadRequestsPremium = [];
         const preview = createEmptyPreview(times);
         const decisions = new Map();
+        const now = Date.now();
+        AUTO.waitingVillages = new Map();
+
         for (const village of villages) {
+            const bundle = autoBundleDecision(village, now);
+            if (bundle) {
+                const id = String(village.village_id);
+                const decision = {
+                    free: bundle.free.slice(),
+                    used: [],
+                    dropped: [],
+                    minFarmSpace: null,
+                    heldForBundle: true,
+                    waitUntil: bundle.waitUntil,
+                    returningCategories: bundle.returningCategories.slice()
+                };
+                decisions.set(id, decision);
+                AUTO.waitingVillages.set(id, decision);
+                continue;
+            }
+
             const decision = autoCalculateVillageWithFallback(village, times, preview);
             decisions.set(String(village.village_id), decision);
         }
+
         return {
             villages,
             preview,
@@ -4460,7 +4550,6 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
             let villages = await loadAllVillagePages();
             let plan = autoBuildPlan(villages, times, AUTO.mode === 'sim');
-            autoCollectServerReturns(villages);
 
             // Im echten Modus unmittelbar vor dem Versand ein zweites Mal frisch lesen
             // und neu planen. Nur dieser zweite, aktuelle Plan darf gesendet werden.
@@ -4469,7 +4558,6 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                 const firstRequests = plan.requests.slice();
                 villages = await loadAllVillagePages();
                 plan = autoBuildPlan(villages, times, false);
-                autoCollectServerReturns(villages);
                 if (!autoSamePlan(firstRequests, plan.requests)) {
                     autoLog(`  ↻ Plan hat sich beim Sicherheitscheck geändert · ${firstRequests.length} → ${plan.requests.length} Auftrag/-aufträge · es wird ausschließlich der neue Plan verwendet.`);
                 } else {
@@ -4490,7 +4578,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                 byVillage.get(id).push(Number(req.option_id));
             }
 
-            let freeTotal = 0, plannedTotal = 0, reducedVillages = 0;
+            let freeTotal = 0, plannedTotal = 0, reducedVillages = 0, bundledVillages = 0;
             for (const village of villages) {
                 const id = String(village.village_id);
                 const decision = plan.decisions.get(id) || {free:[],used:[],dropped:[]};
@@ -4498,6 +4586,21 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                 const used = decision.used || [];
                 freeTotal += free.length;
                 plannedTotal += used.length;
+
+                if (decision.heldForBundle) {
+                    bundledVillages++;
+                    const waitText = new Date(decision.waitUntil).toLocaleTimeString('de-DE', {
+                        hour:'2-digit', minute:'2-digit', second:'2-digit'
+                    });
+                    const returning = (decision.returningCategories || [])
+                        .map(item => `Kat. ${item.category}`)
+                        .join(', ');
+                    autoLog(
+                        `  ⏳ ${villageCoords(village) || village.village_name || id} · ${free.length} frei · ${returning || 'weitere Kategorie'} innerhalb ${Math.round(AUTO.bundleWindowMs / 60000)} Min. zurück → Dorf wird bis ${waitText} gebündelt und dann komplett frisch neu geplant.`
+                    );
+                    continue;
+                }
+
                 if (decision.dropped?.length) {
                     reducedVillages++;
                     AUTO.droppedCategories += decision.dropped.length;
@@ -4533,12 +4636,12 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                     ? new Date(earliestReturn).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'})
                     : '—';
                 const verb = AUTO.mode === 'live' ? 'wurden jetzt gestartet' : 'wären jetzt gestartet worden';
-                autoLog(`${squadRequests.length} Sammelauftrag/-aufträge ${verb} · ${byVillage.size} Dörfer · ${reducedVillages} Dorf/Dörfer mit Kategorie-Fallback · früheste Rückkehr ${returnText}.`);
+                autoLog(`${squadRequests.length} Sammelauftrag/-aufträge ${verb} · ${byVillage.size} Dörfer · ${reducedVillages} Dorf/Dörfer mit Kategorie-Fallback · ${bundledVillages} Dorf/Dörfer gebündelt · früheste Rückkehr ${returnText}.`);
             }
 
             const occupied = AUTO.busy.size;
             const occupiedLabel = AUTO.mode === 'live' ? 'optimistisch/Server unterwegs' : 'simuliert unterwegs';
-            autoLog(`Status · Dörfer ${villages.length} · frei geprüft ${freeTotal} · geplant ${plannedTotal} · ${occupiedLabel} ${occupied}`);
+            autoLog(`Status · Dörfer ${villages.length} · frei geprüft ${freeTotal} · geplant ${plannedTotal} · gebündelt ${bundledVillages} · ${occupiedLabel} ${occupied}`);
             autoUpdateStatus();
             autoSchedule(autoNextDelay());
         } catch (error) {
@@ -4632,6 +4735,8 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                     AUTO.running = true;
                     AUTO.busy.clear();
                     AUTO.serverBusyUntil = [];
+                    AUTO.serverReturnByVillage = new Map();
+                    AUTO.waitingVillages = new Map();
                     AUTO.log = [];
                     AUTO.startedAt = Date.now();
                     AUTO.cycles = 0;
@@ -4759,6 +4864,11 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                     <div id="mspAutoState" style="font-weight:bold;margin-bottom:3px;">⚪ Bereit · ⏱ 00:00:00 · 🚀 0 · 🔄 0 · unterwegs 0</div>
                     <div id="mspAutoNext" style="font-size:11px;margin-bottom:6px;">Nächster Check: —</div>
                     <div style="font-size:11px;margin-bottom:6px;">Kategorien: immer automatisch alle verfügbaren. Reichen die Truppen nicht für alle, wird die jeweils schwächste Kategorie weggelassen und neu gerechnet.</div>
+                    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px;margin-bottom:6px;padding:6px;border:1px solid #b79a63;border-radius:4px;background:#fff4d8;">
+                        <b>⏳ Bündelungsfenster:</b>
+                        <input id="mspAutoBundleMinutes" type="number" min="0" max="60" step="1" value="${Math.round(AUTO.bundleWindowMs / 60000)}" style="width:58px;">
+                        <span>Min. · Kommen im selben Dorf weitere Kategorien bald zurück, wartet dieses Dorf. Danach wird mit der echten Uhrzeit neu geplant; deine Rückkehrgrenze bleibt hart.</span>
+                    </div>
                     <div style="font-size:11px;margin-bottom:6px;padding:6px;border:1px solid #c9a227;border-radius:4px;"><b>Live-Sicherheit:</b> Vor jedem echten Versand werden Dörfer, freie Kategorien und Truppen erneut vom Server geladen. Bei einer unklaren Versandantwort stoppt der Autopilot statt automatisch erneut zu senden.</div>
                     <pre id="mspAutoLog" style="height:210px;overflow:auto;white-space:pre-wrap;background:#1f1f1f;color:#eee;padding:8px;border-radius:5px;margin:0;font:11px/1.4 Consolas,monospace;"></pre>
                 </div>
@@ -4768,6 +4878,15 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         $('#mspAutoLiveStart').on('click', () => autoStart('live'));
         $('#mspAutoStop').on('click', autoStop);
         $('#mspAutoCopy').on('click', autoCopyLog);
+        $('#mspAutoBundleMinutes').on('change input', function () {
+            const minutes = Math.max(0, Math.min(60, Number($(this).val()) || 0));
+            $(this).val(minutes);
+            AUTO.bundleWindowMs = minutes * 60000;
+            localStorage.setItem('msp_automate_bundle_minutes', String(minutes));
+            if (AUTO.running) {
+                autoLog(`⚙ Bündelungsfenster auf ${minutes} Min. geändert · gilt ab der nächsten frischen Planung.`);
+            }
+        });
     }
 
     function init() {
