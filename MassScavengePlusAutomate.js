@@ -43,11 +43,12 @@
 (() => {
     'use strict';
 
+    // Zentrale Versionsnummer: alle sichtbaren Versionsanzeigen nutzen APP.version.
     const APP = {
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '3.0.0-automate-sim',
+        version: '0.4.1',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -1520,7 +1521,7 @@
         const root = $(`
 <div id="${APP.id}" class="msp-compact">
     <div class="msp-header">
-        <div class="msp-title">Mass Scavenge+ Automate <span class="msp-version">v0.2 SIM</span></div>
+        <div class="msp-title">Mass Scavenge+ Automate <span class="msp-version">v${APP.version} SIM</span></div>
         <div class="msp-spacer"></div>
         <button class="msp-btn msp-btn-secondary msp-btn-icon" id="mspSettingsBtn" title="Einstellungen">⚙</button>
         <button class="msp-btn msp-btn-danger msp-btn-icon" id="mspCloseBtn" title="Schließen">✕</button>
@@ -4155,7 +4156,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
 
     /* =========================================================
-       Mass Scavenge+ Automate – Simulations-Autopilot v0.4
+       Mass Scavenge+ Automate – Simulations-Autopilot v0.4.1
        - sendet KEINE echten Sammelaufträge
        - nutzt automatisch alle freien/freigeschalteten Kategorien
        - jeder einzelne Auftrag braucht mindestens 10 Bauernhofplätze
@@ -4525,7 +4526,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         if (!root.length || $('#mspAutoPanel').length) return;
         const panel = $(`
             <div class="msp-panel" id="mspAutoPanel" style="border:2px solid #8b6914;">
-                <div class="msp-panel-title">🤖 MassScavenge Automate v0.3 <span class="msp-section-note">Simulation · kein echter Versand</span></div>
+                <div class="msp-panel-title">🤖 MassScavenge Automate v${APP.version} SIM <span class="msp-section-note">Simulation · kein echter Versand</span></div>
                 <div class="msp-panel-content">
                     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:7px;">
                         <button class="msp-btn msp-btn-success" id="mspAutoStart">▶ Simulation starten</button>
