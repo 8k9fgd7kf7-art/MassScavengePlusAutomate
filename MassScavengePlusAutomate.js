@@ -4155,10 +4155,11 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
 
     /* =========================================================
-       Mass Scavenge+ Automate – Simulations-Autopilot v0.1
+       Mass Scavenge+ Automate – Simulations-Autopilot v0.4
        - sendet KEINE echten Sammelaufträge
        - nutzt automatisch alle freien/freigeschalteten Kategorien
-       - reichen Truppen nicht, bleiben die schwächeren Kategorien weg
+       - jeder einzelne Auftrag braucht mindestens 10 Bauernhofplätze
+       - reichen Truppen nicht, fällt jeweils die schwächste Kategorie weg und es wird neu gerechnet
        - simuliert Belegung/Rückkehr und prüft kurz nach der nächsten Rückkehr
        ========================================================= */
     const AUTO = {
@@ -4173,7 +4174,8 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         cycles: 0,
         launched: 0,
         droppedCategories: 0,
-        statusTimer: null
+        statusTimer: null,
+        serverBusyUntil: []
     };
 
 
@@ -4234,15 +4236,123 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         return out;
     }
 
-    function autoRuntimeMsForVillage(village, times) {
-        const type = villageType(village);
-        const hours = type === 'off' ? times.off : type === 'def' ? times.def : Math.max(times.off, times.def);
-        return Math.max(1, Number(hours) || 1) * 3600000;
+    const AUTO_POP = { spear:1, sword:1, axe:1, archer:1, light:4, marcher:5, heavy:6, spy:2, ram:5, catapult:8, knight:10 };
+    const AUTO_CATEGORY_FACTOR = { 1:0.10, 2:0.25, 3:0.50, 4:0.75 };
+
+    function autoFarmSpaceForRequest(req) {
+        const counts = req?.candidate_squad?.unit_counts || {};
+        return Object.entries(counts).reduce((sum, [unit, amount]) => {
+            return sum + (Number(amount) || 0) * (AUTO_POP[unit] || 0);
+        }, 0);
+    }
+
+    function autoActualRuntimeMs(req, village) {
+        const counts = req?.candidate_squad?.unit_counts || {};
+        const carryFactor = Number(village?.unit_carry_factor || 1) || 1;
+        let rawCarry = 0;
+        for (const [unit, amount] of Object.entries(counts)) {
+            rawCarry += (Number(amount) || 0) * (UNIT_META[unit]?.carry || 0) * carryFactor;
+        }
+        const category = Number(req?.option_id || 0);
+        const categoryFactor = Number(village?.options?.[category]?.loot_factor || AUTO_CATEGORY_FACTOR[category] || 0);
+        const effectiveHaul = rawCarry * categoryFactor;
+        if (!(effectiveHaul > 0) || !(durationFactor > 0) || !(durationExponent > 0)) return AUTO.fallbackDelayMs;
+        const seconds = durationFactor * (durationInitialSeconds + Math.pow(100 * effectiveHaul * effectiveHaul, durationExponent));
+        return Math.max(AUTO.minDelayMs, seconds * 1000);
+    }
+
+    function autoNormalizeTimestamp(value) {
+        let n = Number(value);
+        if (!Number.isFinite(n) || n <= 0) return 0;
+        if (n < 1e12) n *= 1000;
+        return n;
+    }
+
+    function autoCollectServerReturns(villages) {
+        const found = [];
+        const now = Date.now();
+        for (const village of villages || []) {
+            for (let category = 1; category <= 4; category++) {
+                const squad = village?.options?.[category]?.scavenging_squad;
+                if (!squad || squad.__msp_simulated) continue;
+                const values = [
+                    squad.return_time, squad.return_timestamp, squad.returnTime,
+                    squad.end_time, squad.end_timestamp, squad.ends_at, squad.finish_time
+                ];
+                for (const value of values) {
+                    const ts = autoNormalizeTimestamp(value);
+                    if (ts > now) { found.push(ts); break; }
+                }
+            }
+        }
+        AUTO.serverBusyUntil = found;
+    }
+
+    function autoMergePreview(target, source) {
+        if (!target || !source) return;
+        target.requests += source.requests || 0;
+        target.skippedNoRally += source.skippedNoRally || 0;
+        target.skippedNoTroops += source.skippedNoTroops || 0;
+        target.skippedNoCategory += source.skippedNoCategory || 0;
+        for (const id of source.villagesUsed || []) target.villagesUsed.add(id);
+        for (const [unit, amount] of Object.entries(source.unitTotals || {})) target.unitTotals[unit] = (target.unitTotals[unit] || 0) + amount;
+        (source.categoryTotals || []).forEach((row, i) => {
+            if (!target.categoryTotals[i] || !row) return;
+            target.categoryTotals[i].requests += row.requests || 0;
+            target.categoryTotals[i].units += row.units || 0;
+        });
+    }
+
+    function autoCalculateVillageWithFallback(village, times, preview) {
+        const free = autoFreeCategories(village).sort((a,b)=>a-b);
+        if (!free.length) return { free, used: [], dropped: [], minFarmSpace: null };
+
+        const originalCategories = [...config.categories];
+        const originalRequests = squadRequests;
+        const originalPremium = squadRequestsPremium;
+        let chosen = null;
+
+        // Immer zuerst alle freien Kategorien. Reicht die Mindestgröße nicht,
+        // fällt jeweils die schlechteste (= niedrigste) Kategorie weg.
+        for (let start = 0; start < free.length; start++) {
+            const active = free.slice(start);
+            config.categories = [1,2,3,4].map(c => active.includes(c));
+            squadRequests = [];
+            squadRequestsPremium = [];
+            const tempPreview = createEmptyPreview(times);
+            calculateVillage(village, times, tempPreview);
+            const trial = squadRequests.slice();
+            const trialPremium = squadRequestsPremium.slice();
+            const spaces = trial.map(autoFarmSpaceForRequest);
+            const everyActivePlanned = trial.length === active.length && active.every(c => trial.some(r => Number(r.option_id) === c));
+            const allLargeEnough = spaces.length > 0 && spaces.every(v => v >= 10);
+            if (everyActivePlanned && allLargeEnough) {
+                chosen = { active, trial, trialPremium, spaces, tempPreview };
+                break;
+            }
+        }
+
+        squadRequests = originalRequests;
+        squadRequestsPremium = originalPremium;
+        config.categories = originalCategories;
+
+        if (!chosen) return { free, used: [], dropped: free.slice(), minFarmSpace: null };
+        squadRequests.push(...chosen.trial);
+        squadRequestsPremium.push(...chosen.trialPremium);
+        autoMergePreview(preview, chosen.tempPreview);
+        return {
+            free,
+            used: chosen.active.slice(),
+            dropped: free.filter(c => !chosen.active.includes(c)),
+            minFarmSpace: Math.min(...chosen.spaces)
+        };
     }
 
     function autoNextDelay() {
         const now = Date.now();
-        const future = [...AUTO.busy.values()].filter(v => v > now).sort((a,b)=>a-b);
+        const future = [...AUTO.busy.values(), ...(AUTO.serverBusyUntil || [])]
+            .filter(v => v > now)
+            .sort((a,b)=>a-b);
         if (!future.length) return AUTO.fallbackDelayMs;
         return Math.max(AUTO.minDelayMs, future[0] - now + 3000);
     }
@@ -4278,11 +4388,12 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
             squadRequests = [];
             squadRequestsPremium = [];
             const preview = createEmptyPreview(times);
-            const freeBefore = new Map();
+            const decisions = new Map();
             for (const village of villages) {
-                freeBefore.set(String(village.village_id), autoFreeCategories(village));
-                calculateVillage(village, times, preview);
+                const decision = autoCalculateVillageWithFallback(village, times, preview);
+                decisions.set(String(village.village_id), decision);
             }
+            autoCollectServerReturns(villages);
 
             const byVillage = new Map();
             for (const req of squadRequests) {
@@ -4294,15 +4405,18 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
             let freeTotal = 0, plannedTotal = 0, reducedVillages = 0;
             for (const village of villages) {
                 const id = String(village.village_id);
-                const free = freeBefore.get(id) || [];
-                const used = (byVillage.get(id) || []).sort((a,b)=>a-b);
+                const decision = decisions.get(id) || {free:[],used:[],dropped:[]};
+                const free = decision.free || [];
+                const used = decision.used || [];
                 freeTotal += free.length;
                 plannedTotal += used.length;
-                if (free.length && used.length < free.length && used.length) {
+                if (decision.dropped?.length) {
                     reducedVillages++;
-                    const dropped = free.filter(c => !used.includes(c));
-                    AUTO.droppedCategories += dropped.length;
-                    autoLog(`  ↳ ${villageCoords(village) || village.village_name || id} · ${free.length} frei → ${used.length} genutzt · Kategorie ${dropped.join(', ')} wegen zu wenig Truppen weggelassen`);
+                    AUTO.droppedCategories += decision.dropped.length;
+                    const reason = used.length
+                        ? `Mindestgröße 10 Bauernhofplätze / Truppen reichen nicht für alle`
+                        : `kein gültiger Auftrag mit mindestens 10 Bauernhofplätzen`;
+                    autoLog(`  ↳ ${villageCoords(village) || village.village_name || id} · ${free.length} frei → ${used.length} genutzt · Kategorie ${decision.dropped.join(', ')} entfernt · ${reason}`);
                 }
             }
 
@@ -4310,13 +4424,19 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                 autoLog(`Keine neuen Sammelaufträge möglich · ${freeTotal} freie Kategorie(n) geprüft.`);
             } else {
                 const now = Date.now();
+                let earliestReturn = Infinity;
                 for (const req of squadRequests) {
                     const village = villages.find(v => String(v.village_id) === String(req.village_id));
-                    const until = now + autoRuntimeMsForVillage(village, times);
+                    const runtimeMs = autoActualRuntimeMs(req, village);
+                    const until = now + runtimeMs;
+                    earliestReturn = Math.min(earliestReturn, until);
                     AUTO.busy.set(autoBusyKey(req.village_id, req.option_id), until);
                 }
                 AUTO.launched += squadRequests.length;
-                autoLog(`${squadRequests.length} Sammelauftrag/-aufträge wären jetzt gestartet worden · ${byVillage.size} Dörfer · ${reducedVillages} Dorf/Dörfer mit Kategorie-Fallback.`);
+                const returnText = Number.isFinite(earliestReturn)
+                    ? new Date(earliestReturn).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'})
+                    : '—';
+                autoLog(`${squadRequests.length} Sammelauftrag/-aufträge wären jetzt gestartet worden · ${byVillage.size} Dörfer · ${reducedVillages} Dorf/Dörfer mit Kategorie-Fallback · früheste Rückkehr ${returnText}.`);
             }
 
             const occupied = AUTO.busy.size;
@@ -4336,6 +4456,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         if (AUTO.running) return;
         AUTO.running = true;
         AUTO.busy.clear();
+        AUTO.serverBusyUntil = [];
         AUTO.log = [];
         AUTO.startedAt = Date.now();
         AUTO.cycles = 0;
