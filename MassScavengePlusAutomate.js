@@ -4156,7 +4156,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
 
     /* =========================================================
-       Mass Scavenge+ Automate – Autopilot v1.0.1
+       Mass Scavenge+ Automate – Autopilot v1.0.2
        - Simulation und echter Autopilot nutzen dieselbe getestete Planungslogik
        - nutzt automatisch alle freien/freigeschalteten Kategorien
        - jeder einzelne Auftrag braucht mindestens 10 Bauernhofplätze
@@ -4555,6 +4555,56 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         }
     }
 
+
+    function showLiveAutopilotConfirm(onConfirm) {
+        $('#mspAutoConfirmOverlay').remove();
+
+        $('body').append(`
+            <div id="mspAutoConfirmOverlay" style="
+                position:fixed;inset:0;z-index:999999;
+                background:rgba(0,0,0,.58);
+                display:flex;align-items:center;justify-content:center;
+                padding:16px;
+            ">
+                <div style="
+                    width:min(92vw,460px);
+                    background:#f4e4bc;
+                    border:2px solid #7d510f;
+                    border-radius:10px;
+                    box-shadow:0 8px 28px rgba(0,0,0,.45);
+                    padding:16px;color:#2b1b08;
+                    font-family:Arial,sans-serif;
+                ">
+                    <div style="font-size:20px;font-weight:700;margin-bottom:10px;">
+                        ⚠️ Echten Autopilot starten?
+                    </div>
+                    <div style="font-size:14px;line-height:1.45;margin-bottom:14px;">
+                        MassScavenge+ wird Sammelaufträge <b>wirklich absenden</b>
+                        und nach ihrer Rückkehr automatisch neu planen.<br><br>
+                        Direkt vor jedem Versand werden die Serverdaten erneut geprüft.
+                        Bei einer unklaren Serverantwort stoppt der Autopilot.
+                    </div>
+                    <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">
+                        <button type="button" id="mspAutoConfirmCancel" class="btn">Abbrechen</button>
+                        <button type="button" id="mspAutoConfirmStart" class="btn btn-confirm-yes" style="font-weight:700;">
+                            ▶ Autopilot starten
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `);
+
+        $('#mspAutoConfirmCancel').off('click.mspAutoConfirm').on('click.mspAutoConfirm', function () {
+            $('#mspAutoConfirmOverlay').remove();
+            autoLog('Echter Autopilot wurde vor dem Start abgebrochen.');
+        });
+
+        $('#mspAutoConfirmStart').off('click.mspAutoConfirm').on('click.mspAutoConfirm', function () {
+            $('#mspAutoConfirmOverlay').remove();
+            if (typeof onConfirm === 'function') onConfirm();
+        });
+    }
+
     function autoStart(mode = 'sim') {
         try {
             if (AUTO.running) {
@@ -4565,8 +4615,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
             AUTO.mode = mode === 'live' ? 'live' : 'sim';
             readFormIntoConfig();
 
-            // Automate verwaltet die Kategorien selbst. Das Kategorien-Panel ist in
-            // dieser Oberfläche absichtlich entfernt und darf den Start nie blockieren.
+            // Automate verwaltet die Kategorien selbst.
             config.categories = [true, true, true, true];
 
             const times = getEffectiveTimes();
@@ -4578,45 +4627,56 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                 return;
             }
 
+            const beginRun = function () {
+                try {
+                    AUTO.running = true;
+                    AUTO.busy.clear();
+                    AUTO.serverBusyUntil = [];
+                    AUTO.log = [];
+                    AUTO.startedAt = Date.now();
+                    AUTO.cycles = 0;
+                    AUTO.launched = 0;
+                    AUTO.sentGroups = 0;
+                    AUTO.droppedCategories = 0;
+
+                    clearInterval(AUTO.statusTimer);
+                    AUTO.statusTimer = setInterval(() => autoUpdateStatus(), 1000);
+
+                    $('#mspAutoSimStart,#mspAutoLiveStart').prop('disabled', true);
+                    $('#mspAutoStop').prop('disabled', false);
+                    autoUpdateStatus('startet …');
+
+                    if (AUTO.mode === 'live') {
+                        autoLog('🔴 Echter Autopilot gestartet. Sammelaufträge werden automatisch gesendet.');
+                        autoLog('🛡 Sicherheitsmodus aktiv: direkt vor jedem Versand wird frisch neu geplant; bei unklarer Serverantwort stoppt der Autopilot.');
+                    } else {
+                        autoLog('Simulation gestartet. Es werden KEINE echten Sammelaufträge gesendet.');
+                    }
+
+                    autoCycle();
+                } catch (error) {
+                    console.error('[MassScavenge+ Automate Begin]', error);
+                    AUTO.running = false;
+                    $('#mspAutoSimStart,#mspAutoLiveStart').prop('disabled', false);
+                    $('#mspAutoStop').prop('disabled', true);
+                    const message = error?.message || String(error);
+                    autoLog(`❌ Startfehler: ${message}`);
+                    autoUpdateStatus('Startfehler');
+                    try { notifyError(`Autopilot konnte nicht gestartet werden: ${message}`); } catch (_) {}
+                }
+            };
+
             if (AUTO.mode === 'live') {
                 if (!confirmExtremeRuntime(times, 'Autopilot')) {
                     autoLog('Echter Autopilot wurde bei der Laufzeitwarnung abgebrochen.');
                     return;
                 }
 
-                const ok = window.confirm(
-                    'ECHTEN Sammel-Autopilot starten?\n\n' +
-                    'MassScavenge+ wird Sammelaufträge selbstständig absenden und nach Rückkehr automatisch neu planen.\n' +
-                    'Vor jedem Versand werden die Serverdaten erneut geprüft.\n\n' +
-                    'Mit OK startest du den echten Versand.'
-                );
-                if (!ok) {
-                    autoLog('Echter Autopilot wurde vor dem Start abgebrochen.');
-                    return;
-                }
+                showLiveAutopilotConfirm(beginRun);
+                return;
             }
 
-            AUTO.running = true;
-        AUTO.busy.clear();
-        AUTO.serverBusyUntil = [];
-        AUTO.log = [];
-        AUTO.startedAt = Date.now();
-        AUTO.cycles = 0;
-        AUTO.launched = 0;
-        AUTO.sentGroups = 0;
-        AUTO.droppedCategories = 0;
-        clearInterval(AUTO.statusTimer);
-        AUTO.statusTimer = setInterval(() => autoUpdateStatus(), 1000);
-        $('#mspAutoSimStart,#mspAutoLiveStart').prop('disabled', true);
-        $('#mspAutoStop').prop('disabled', false);
-        autoUpdateStatus('startet …');
-        if (AUTO.mode === 'live') {
-            autoLog('🔴 Echter Autopilot gestartet. Sammelaufträge werden automatisch gesendet.');
-            autoLog('🛡 Sicherheitsmodus aktiv: direkt vor jedem Versand wird frisch neu geplant; bei unklarer Serverantwort stoppt der Autopilot.');
-        } else {
-            autoLog('Simulation gestartet. Es werden KEINE echten Sammelaufträge gesendet.');
-        }
-            autoCycle();
+            beginRun();
         } catch (error) {
             console.error('[MassScavenge+ Automate Start]', error);
             const message = error?.message || String(error);
