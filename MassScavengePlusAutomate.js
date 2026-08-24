@@ -48,7 +48,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.1.0',
+        version: '1.1.1',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -4156,7 +4156,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
 
     /* =========================================================
-       Mass Scavenge+ Automate – Autopilot v1.1.0
+       Mass Scavenge+ Automate – Autopilot v1.1.1
        - Simulation und echter Autopilot nutzen dieselbe getestete Planungslogik
        - nutzt automatisch alle freien/freigeschalteten Kategorien
        - jeder einzelne Auftrag braucht mindestens 10 Bauernhofplätze
@@ -4185,7 +4185,11 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         bundleWindowMs: Math.max(
             0,
             Math.min(60, Number(localStorage.getItem('msp_automate_bundle_minutes') || 10))
-        ) * 60000
+        ) * 60000,
+        deadlineOffAt: 0,
+        deadlineDefAt: 0,
+        stopDeadlineAt: 0,
+        deadlineLabel: ''
     };
 
 
@@ -4416,6 +4420,79 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         };
     }
 
+
+    function autoFreezeDeadlinesAtStart() {
+        serverDateMs = parseServerDate();
+        const mode = $('input[name="mspTimeMode"]:checked').val();
+        const now = serverDateMs;
+
+        let offAt = 0;
+        let defAt = 0;
+        let label = '';
+
+        if (mode === 'runtime') {
+            const offHours = safeFloat($('#mspOffRuntime').val(), NaN, 0.01);
+            const defHours = safeFloat($('#mspDefRuntime').val(), NaN, 0.01);
+            if (Number.isFinite(offHours) && offHours > 0) offAt = now + offHours * 3600000;
+            if (Number.isFinite(defHours) && defHours > 0) defAt = now + defHours * 3600000;
+            label = 'feste Laufzeit ab Start';
+        } else {
+            offAt = parseLocalDateTime($('#mspOffDate').val(), $('#mspOffTime').val());
+            defAt = parseLocalDateTime($('#mspDefDate').val(), $('#mspDefTime').val());
+            label = 'feste Rückkehr-Deadline';
+        }
+
+        const valid = [offAt, defAt].filter(ts => Number.isFinite(ts) && ts > 0);
+        if (!valid.length) throw new Error('Keine gültige Autopilot-Deadline gefunden.');
+
+        AUTO.deadlineOffAt = offAt;
+        AUTO.deadlineDefAt = defAt;
+        AUTO.stopDeadlineAt = Math.max(...valid);
+        AUTO.deadlineLabel = label;
+
+        return {
+            offAt,
+            defAt,
+            stopAt: AUTO.stopDeadlineAt,
+            mode
+        };
+    }
+
+    function autoFrozenTimes() {
+        serverDateMs = parseServerDate();
+        const now = serverDateMs;
+        return {
+            off: Number.isFinite(AUTO.deadlineOffAt) && AUTO.deadlineOffAt > 0
+                ? (AUTO.deadlineOffAt - now) / 3600000
+                : -1,
+            def: Number.isFinite(AUTO.deadlineDefAt) && AUTO.deadlineDefAt > 0
+                ? (AUTO.deadlineDefAt - now) / 3600000
+                : -1
+        };
+    }
+
+    function autoFormatDeadline(ts) {
+        if (!Number.isFinite(ts) || ts <= 0) return '—';
+        return new Date(ts).toLocaleString('de-DE', {
+            day:'2-digit', month:'2-digit',
+            hour:'2-digit', minute:'2-digit', second:'2-digit'
+        });
+    }
+
+    function autoDeadlineReached() {
+        if (!AUTO.stopDeadlineAt) return false;
+        return parseServerDate() >= AUTO.stopDeadlineAt;
+    }
+
+    function autoStopAtDeadline() {
+        if (!AUTO.running) return;
+        const when = autoFormatDeadline(AUTO.stopDeadlineAt);
+        autoLog(`🛑 Einmalige Autopilot-Deadline erreicht (${when}) · Autopilot wird vollständig beendet.`);
+        autoStop(true);
+        $('#mspAutoState').text(`🛑 Deadline erreicht · Autopilot beendet · 🚀 ${AUTO.launched} · 🔄 ${AUTO.cycles}`);
+        $('#mspAutoNext').text('Nächster Check: —');
+    }
+
     function autoNextDelay() {
         const now = Date.now();
         const future = [...AUTO.busy.values(), ...(AUTO.serverBusyUntil || [])]
@@ -4428,11 +4505,32 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
     function autoSchedule(delayMs) {
         clearTimeout(AUTO.timer);
         if (!AUTO.running) return;
-        const delay = Math.max(AUTO.minDelayMs, Number(delayMs) || AUTO.fallbackDelayMs);
-        const next = new Date(Date.now() + delay);
+
+        if (autoDeadlineReached()) {
+            autoStopAtDeadline();
+            return;
+        }
+
+        let delay = Math.max(AUTO.minDelayMs, Number(delayMs) || AUTO.fallbackDelayMs);
+        const now = Date.now();
+
+        // Niemals über die einmalig eingefrorene Deadline hinaus schlafen.
+        // Ist die nächste reguläre Rückkehr später, wacht Automate exakt an der
+        // Deadline auf und beendet sich, statt auf den Folgetag umzuschalten.
+        if (AUTO.stopDeadlineAt > now) {
+            delay = Math.min(delay, Math.max(250, AUTO.stopDeadlineAt - now));
+        }
+
+        const next = new Date(now + delay);
         const label = next.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
         $('#mspAutoNext').text(`Nächster Check: ${label}`);
-        AUTO.timer = setTimeout(autoCycle, delay);
+        AUTO.timer = setTimeout(function () {
+            if (autoDeadlineReached()) {
+                autoStopAtDeadline();
+                return;
+            }
+            autoCycle();
+        }, delay);
     }
 
     function autoBuildPlan(villages, times, simulateBusy) {
@@ -4535,14 +4633,41 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
     async function autoCycle() {
         if (!AUTO.running || AUTO.cycleRunning) return;
+
+        if (autoDeadlineReached()) {
+            autoStopAtDeadline();
+            return;
+        }
+
         AUTO.cycleRunning = true;
         try {
             readFormIntoConfig();
             config.categories = [true,true,true,true];
             saveConfig();
-            const times = getEffectiveTimes();
+
+            // Während eines laufenden Automate-Laufs wird NICHT mehr aus den
+            // Formularfeldern neu interpretiert. Die beim Start gewählten Ziele
+            // sind absolute, einmalige Deadlines.
+            const times = autoFrozenTimes();
+
+            // Wenn eine Teil-Deadline bereits vorbei ist, darf diese Truppengruppe
+            // nicht mehr neu auf Reise geschickt werden. Erst wenn die letzte
+            // Teil-Deadline abläuft, beendet sich der gesamte Autopilot.
+            if (times.off <= 0 && times.def <= 0) {
+                autoStopAtDeadline();
+                return;
+            }
+
             const validation = validateForm(times);
-            if (validation) throw new Error(validation);
+            if (validation) {
+                // Negative Restlaufzeit einer bereits abgelaufenen Teilgruppe ist
+                // nach dem Start erwartbar. Für die andere Gruppe darf weiter geplant werden.
+                const allExpired = times.off <= 0 && times.def <= 0;
+                if (allExpired) {
+                    autoStopAtDeadline();
+                    return;
+                }
+            }
 
             AUTO.cycles++;
             autoUpdateStatus('prüft …');
@@ -4685,7 +4810,10 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                         MassScavenge+ wird Sammelaufträge <b>wirklich absenden</b>
                         und nach ihrer Rückkehr automatisch neu planen.<br><br>
                         Direkt vor jedem Versand werden die Serverdaten erneut geprüft.
-                        Bei einer unklaren Serverantwort stoppt der Autopilot.
+                        Bei einer unklaren Serverantwort stoppt der Autopilot.<br><br>
+                        <b>Die jetzt gewählte Zeit ist einmalig:</b> Sobald die feste
+                        Deadline erreicht ist, beendet sich der Autopilot vollständig
+                        und startet am Folgetag nicht automatisch neu.
                     </div>
                     <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">
                         <button type="button" id="mspAutoConfirmCancel" class="btn">Abbrechen</button>
@@ -4730,6 +4858,17 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                 return;
             }
 
+            // Genau einmal beim Start auf ein konkretes Datum einfrieren.
+            // Danach kann aus „Heute 22:30“ niemals nach Mitternacht
+            // automatisch „neues Heute 22:30“ werden.
+            const frozenDeadline = autoFreezeDeadlinesAtStart();
+            if (frozenDeadline.stopAt <= parseServerDate()) {
+                autoLog(`❌ Start nicht möglich: Die gewählte einmalige Deadline ${autoFormatDeadline(frozenDeadline.stopAt)} ist bereits erreicht.`);
+                autoUpdateStatus('Deadline bereits erreicht');
+                notifyError('Die gewählte Autopilot-Deadline ist bereits erreicht.');
+                return;
+            }
+
             const beginRun = function () {
                 try {
                     AUTO.running = true;
@@ -4757,6 +4896,8 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                     } else {
                         autoLog('Simulation gestartet. Es werden KEINE echten Sammelaufträge gesendet.');
                     }
+
+                    autoLog(`⏰ Einmalige Deadline eingefroren · Off ${autoFormatDeadline(AUTO.deadlineOffAt)} · Deff ${autoFormatDeadline(AUTO.deadlineDefAt)} · spätestens ${autoFormatDeadline(AUTO.stopDeadlineAt)} wird der Autopilot automatisch beendet.`);
 
                     autoCycle();
                 } catch (error) {
@@ -4811,6 +4952,11 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
             const label = mode === 'live' ? 'Echter Autopilot' : 'Simulation';
             autoLog(`${label} gestoppt · Laufzeit ${runtime} · ${AUTO.launched} Sammelaufträge ${mode === 'live' ? 'gesendet' : 'simuliert'} · ${AUTO.cycles} Zyklen · ${AUTO.droppedCategories} Kategorien durch Fallback entfernt.`);
         }
+
+        AUTO.deadlineOffAt = 0;
+        AUTO.deadlineDefAt = 0;
+        AUTO.stopDeadlineAt = 0;
+        AUTO.deadlineLabel = '';
     }
 
     async function autoCopyLog() {
@@ -4870,6 +5016,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                         <span>Min. · Kommen im selben Dorf weitere Kategorien bald zurück, wartet dieses Dorf. Danach wird mit der echten Uhrzeit neu geplant; deine Rückkehrgrenze bleibt hart.</span>
                     </div>
                     <div style="font-size:11px;margin-bottom:6px;padding:6px;border:1px solid #c9a227;border-radius:4px;"><b>Live-Sicherheit:</b> Vor jedem echten Versand werden Dörfer, freie Kategorien und Truppen erneut vom Server geladen. Bei einer unklaren Versandantwort stoppt der Autopilot statt automatisch erneut zu senden.</div>
+                    <div style="font-size:11px;margin-bottom:6px;padding:6px;border:1px solid #9b3b2e;border-radius:4px;background:#ffe8df;"><b>⏰ Einmalige Deadline:</b> „Heute“, „Morgen“ und Laufzeiten wie „4h“ werden beim Start auf ein festes Datum/eine feste Uhrzeit eingefroren. Ist diese Deadline erreicht, beendet sich der Autopilot vollständig.</div>
                     <pre id="mspAutoLog" style="height:210px;overflow:auto;white-space:pre-wrap;background:#1f1f1f;color:#eee;padding:8px;border-radius:5px;margin:0;font:11px/1.4 Consolas,monospace;"></pre>
                 </div>
             </div>`);
