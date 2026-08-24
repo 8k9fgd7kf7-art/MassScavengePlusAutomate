@@ -4168,8 +4168,29 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         log: [],
         cycleRunning: false,
         minDelayMs: 15000,
-        fallbackDelayMs: 120000
+        fallbackDelayMs: 120000,
+        startedAt: 0,
+        cycles: 0,
+        launched: 0,
+        droppedCategories: 0,
+        statusTimer: null
     };
+
+
+    function autoDuration(ms) {
+        const total = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+        const h = Math.floor(total / 3600);
+        const m = Math.floor((total % 3600) / 60);
+        const sec = total % 60;
+        return [h,m,sec].map(v => String(v).padStart(2,'0')).join(':');
+    }
+
+    function autoUpdateStatus(extra) {
+        const runtime = AUTO.startedAt ? autoDuration(Date.now() - AUTO.startedAt) : '00:00:00';
+        const occupied = AUTO.busy.size;
+        const suffix = extra ? ` · ${extra}` : '';
+        $('#mspAutoState').text(`${AUTO.running ? '🟢 Simulation läuft' : '⚪ Bereit'} · ⏱ ${runtime} · 🚀 ${AUTO.launched} · 🔄 ${AUTO.cycles} · unterwegs ${occupied}${suffix}`);
+    }
 
     function autoTime() {
         return new Date().toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
@@ -4247,7 +4268,9 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
             const validation = validateForm(times);
             if (validation) throw new Error(validation);
 
-            autoLog('Check gestartet · Sammeldaten werden frisch eingelesen.');
+            AUTO.cycles++;
+            autoUpdateStatus('prüft …');
+            autoLog(`Zyklus ${AUTO.cycles} · Check gestartet · Sammeldaten werden frisch eingelesen.`);
             const villages = await loadAllVillagePages();
             autoOverlayBusy(villages);
             currentScavengeInfo = villages;
@@ -4278,6 +4301,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                 if (free.length && used.length < free.length && used.length) {
                     reducedVillages++;
                     const dropped = free.filter(c => !used.includes(c));
+                    AUTO.droppedCategories += dropped.length;
                     autoLog(`  ↳ ${villageCoords(village) || village.village_name || id} · ${free.length} frei → ${used.length} genutzt · Kategorie ${dropped.join(', ')} wegen zu wenig Truppen weggelassen`);
                 }
             }
@@ -4291,12 +4315,13 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                     const until = now + autoRuntimeMsForVillage(village, times);
                     AUTO.busy.set(autoBusyKey(req.village_id, req.option_id), until);
                 }
+                AUTO.launched += squadRequests.length;
                 autoLog(`${squadRequests.length} Sammelauftrag/-aufträge wären jetzt gestartet worden · ${byVillage.size} Dörfer · ${reducedVillages} Dorf/Dörfer mit Kategorie-Fallback.`);
             }
 
             const occupied = AUTO.busy.size;
             autoLog(`Status · Dörfer ${villages.length} · frei geprüft ${freeTotal} · geplant ${plannedTotal} · simuliert unterwegs ${occupied}`);
-            $('#mspAutoState').text(`Simulation läuft · ${occupied} unterwegs`);
+            autoUpdateStatus();
             autoSchedule(autoNextDelay());
         } catch (error) {
             console.error('[MassScavenge+ Automate]', error);
@@ -4310,22 +4335,33 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
     function autoStart() {
         if (AUTO.running) return;
         AUTO.running = true;
+        AUTO.busy.clear();
+        AUTO.log = [];
+        AUTO.startedAt = Date.now();
+        AUTO.cycles = 0;
+        AUTO.launched = 0;
+        AUTO.droppedCategories = 0;
+        clearInterval(AUTO.statusTimer);
+        AUTO.statusTimer = setInterval(() => autoUpdateStatus(), 1000);
         $('#mspAutoStart').prop('disabled', true);
         $('#mspAutoStop').prop('disabled', false);
-        $('#mspAutoState').text('Simulation startet …');
+        autoUpdateStatus('startet …');
         autoLog('Simulation gestartet. Es werden KEINE echten Sammelaufträge gesendet.');
         autoCycle();
     }
 
     function autoStop() {
+        const runtime = AUTO.startedAt ? autoDuration(Date.now() - AUTO.startedAt) : '00:00:00';
         AUTO.running = false;
         clearTimeout(AUTO.timer);
+        clearInterval(AUTO.statusTimer);
+        AUTO.statusTimer = null;
         AUTO.timer = null;
         $('#mspAutoStart').prop('disabled', false);
         $('#mspAutoStop').prop('disabled', true);
-        $('#mspAutoState').text('Simulation gestoppt');
+        $('#mspAutoState').text(`⏹ Gestoppt · ⏱ ${runtime} · 🚀 ${AUTO.launched} · 🔄 ${AUTO.cycles}`);
         $('#mspAutoNext').text('Nächster Check: —');
-        autoLog('Simulation gestoppt.');
+        autoLog(`Simulation gestoppt · Laufzeit ${runtime} · ${AUTO.launched} Sammelaufträge simuliert · ${AUTO.cycles} Zyklen · ${AUTO.droppedCategories} Kategorie-Fallbacks.`);
     }
 
     async function autoCopyLog() {
@@ -4349,13 +4385,15 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         $('#mspCategoriesPanel').remove();
         $('#mspCalculatePanel').remove();
         $('#mspPreviewPanel').remove();
+        $('#mspAnalysisPanel').remove();
+        $('#mspTimePanel .msp-quick-v28').remove();
+        $('#mspQuickModal').remove();
 
         // Verbliebene Bereiche für die Automate-Oberfläche neu nummerieren.
         $('#mspTroopsPanel > .msp-panel-title').first().contents().first()[0].textContent = '1. Truppen & Reserven ';
         $('#mspDistributionPanel > .msp-panel-title').first().contents().first()[0].textContent = '2. Verteilung ';
         $('#mspTimePanel > .msp-panel-title').first().contents().first()[0].textContent = '3. Laufzeit / Rückkehr ';
         $('#mspVillagesPanel > .msp-panel-title').first().contents().first()[0].textContent = '4. Dörfer ';
-        $('#mspAnalysisPanel > .msp-panel-title').first().contents().first()[0].textContent = '5. Analyse ';
 
         $('#mspVillageSummary').html('<span class="msp-village-chip">Automate lädt die Dörfer bei jedem Zyklus frisch. Die optionale Dorfwahl bleibt erhalten.</span>');
         $('#mspStatusCategories').text('Kategorien: automatisch');
@@ -4366,14 +4404,14 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         if (!root.length || $('#mspAutoPanel').length) return;
         const panel = $(`
             <div class="msp-panel" id="mspAutoPanel" style="border:2px solid #8b6914;">
-                <div class="msp-panel-title">🤖 MassScavenge Automate <span class="msp-section-note">Simulation · kein echter Versand</span></div>
+                <div class="msp-panel-title">🤖 MassScavenge Automate v0.3 <span class="msp-section-note">Simulation · kein echter Versand</span></div>
                 <div class="msp-panel-content">
                     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:7px;">
                         <button class="msp-btn msp-btn-success" id="mspAutoStart">▶ Simulation starten</button>
                         <button class="msp-btn msp-btn-danger" id="mspAutoStop" disabled>■ Stoppen</button>
                         <button class="msp-btn msp-btn-secondary" id="mspAutoCopy">📋 Protokoll kopieren</button>
                     </div>
-                    <div id="mspAutoState" style="font-weight:bold;margin-bottom:3px;">Bereit</div>
+                    <div id="mspAutoState" style="font-weight:bold;margin-bottom:3px;">⚪ Bereit · ⏱ 00:00:00 · 🚀 0 · 🔄 0 · unterwegs 0</div>
                     <div id="mspAutoNext" style="font-size:11px;margin-bottom:6px;">Nächster Check: —</div>
                     <div style="font-size:11px;margin-bottom:6px;">Kategorien: immer automatisch alle verfügbaren. Reichen die Truppen nicht für alle, wird die jeweils schwächste Kategorie weggelassen und neu gerechnet.</div>
                     <pre id="mspAutoLog" style="height:210px;overflow:auto;white-space:pre-wrap;background:#1f1f1f;color:#eee;padding:8px;border-radius:5px;margin:0;font:11px/1.4 Consolas,monospace;"></pre>
