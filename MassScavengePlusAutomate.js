@@ -48,7 +48,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.1.1',
+        version: '1.2.0',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -57,6 +57,8 @@
         maxSquadsPerGroup: 200,
         debug: false
     };
+
+    const MIN_SCAVENGE_FARM_SPACE = 10;
 
     const UNIT_META = {
         spear:   { label: 'Speer',     carry: 25, type: 'def' },
@@ -3745,7 +3747,8 @@
         });
 
         const troopCount = Object.values(troopsAllowed).reduce((sum, value) => sum + value, 0);
-        if (troopCount <= 0) {
+        const availableFarmSpace = totalFarmSpace(troopsAllowed);
+        if (troopCount <= 0 || availableFarmSpace < MIN_SCAVENGE_FARM_SPACE) {
             preview.skippedNoTroops++;
             return;
         }
@@ -3811,6 +3814,11 @@
             const unitSum = Object.values(unitCounts).reduce((sum, value) => sum + value, 0);
             if (unitSum <= 0) continue;
 
+            // Die Stämme verlangt mindestens 10 Bauernhofplätze pro Sammelauftrag.
+            // Unterhalb dieses Wertes wird niemals ein Request erzeugt.
+            const farmSpace = farmSpaceOfCounts(unitCounts);
+            if (farmSpace < MIN_SCAVENGE_FARM_SPACE) continue;
+
             const candidateSquad = { unit_counts: unitCounts, carry_max: 9999999999 };
             squadRequests.push({
                 village_id: data.village_id,
@@ -3849,63 +3857,189 @@
         return Math.floor(Math.sqrt(first));
     }
 
-    function calculateUnitsPerVillage({ troopsAllowed, totalLoot, totalHaul, haulCategoryRate }) {
+    function farmSpaceOfCounts(counts) {
+        let total = 0;
+        for (const [unit, amount] of Object.entries(counts || {})) {
+            total += safeInt(amount, 0, 0) * safeInt(UNIT_META[unit]?.pop, 1, 1);
+        }
+        return total;
+    }
+
+    function totalFarmSpace(troops) {
+        return farmSpaceOfCounts(troops);
+    }
+
+    function trySeedBalancedCategories(troopsAllowed, categories) {
+        const remaining = { ...troopsAllowed };
+        const result = {};
+        const farmSpace = {};
+        categories.forEach(category => {
+            result[category] = {};
+            farmSpace[category] = 0;
+        });
+
+        const unitOrderByPop = [...config.unitOrder]
+            .filter(unit => Object.prototype.hasOwnProperty.call(remaining, unit))
+            .sort((a, b) => {
+                const popDiff = safeInt(UNIT_META[a]?.pop, 1, 1) - safeInt(UNIT_META[b]?.pop, 1, 1);
+                return popDiff || config.unitOrder.indexOf(a) - config.unitOrder.indexOf(b);
+            });
+
+        while (categories.some(category => farmSpace[category] < MIN_SCAVENGE_FARM_SPACE)) {
+            const category = [...categories]
+                .filter(cat => farmSpace[cat] < MIN_SCAVENGE_FARM_SPACE)
+                .sort((a, b) => farmSpace[a] - farmSpace[b])[0];
+
+            const unit = unitOrderByPop.find(name => safeInt(remaining[name], 0, 0) > 0);
+            if (!unit) return null;
+
+            result[category][unit] = safeInt(result[category][unit], 0, 0) + 1;
+            remaining[unit] = safeInt(remaining[unit], 0, 0) - 1;
+            farmSpace[category] += safeInt(UNIT_META[unit]?.pop, 1, 1);
+        }
+
+        return { result, remaining };
+    }
+
+    function calculateBalancedUnitsPerVillage(troopsAllowed, haulCategoryRate) {
         const result = { 0: {}, 1: {}, 2: {}, 3: {} };
+        const activeCategories = [1, 2, 3, 4].filter(category => (haulCategoryRate[category] || 0) > 0);
+        if (!activeCategories.length) return result;
+
+        // Wenn nicht genug Bauernhofplätze für alle Kategorien vorhanden sind,
+        // verwenden wir so viele Kategorien wie tatsächlich mit mindestens 10 BP
+        // gestartet werden können. In diesem Engpassfall werden die höheren
+        // Sammelstufen zuerst berücksichtigt.
+        const highFirst = [...activeCategories].sort((a, b) => b - a);
+        let selectedCategories = null;
+        let seeded = null;
+
+        for (let count = activeCategories.length; count >= 1; count--) {
+            const candidate = count === activeCategories.length
+                ? [...activeCategories]
+                : highFirst.slice(0, count).sort((a, b) => a - b);
+
+            if (totalFarmSpace(troopsAllowed) < count * MIN_SCAVENGE_FARM_SPACE) continue;
+
+            const attempt = trySeedBalancedCategories(troopsAllowed, candidate);
+            if (attempt) {
+                selectedCategories = candidate;
+                seeded = attempt;
+                break;
+            }
+        }
+
+        if (!selectedCategories || !seeded) return result;
+
+        // Mindestbesatzung übernehmen.
+        for (const category of selectedCategories) {
+            result[category - 1] = { ...seeded.result[category] };
+        }
+
+        const remaining = seeded.remaining;
+        const weights = {};
+        let weightSum = 0;
+        for (const category of selectedCategories) {
+            const weight = Math.max(0, Number(haulCategoryRate[category] || 0));
+            weights[category] = weight;
+            weightSum += weight;
+        }
+        if (weightSum <= 0) return result;
+
+        const carryOf = counts => {
+            let total = 0;
+            for (const [unit, amount] of Object.entries(counts || {})) {
+                total += safeInt(amount, 0, 0) * (UNIT_META[unit]?.carry || 0);
+            }
+            return total;
+        };
+
+        const remainingCarry = carryOf(remaining);
+        const seededCarry = selectedCategories.reduce(
+            (sum, category) => sum + carryOf(result[category - 1]),
+            0
+        );
+        const finalCarryTotal = seededCarry + remainingCarry;
+
+        const targetCarry = {};
+        const currentCarry = {};
+        for (const category of selectedCategories) {
+            targetCarry[category] = finalCarryTotal * (weights[category] / weightSum);
+            currentCarry[category] = carryOf(result[category - 1]);
+        }
+
+        // Restliche Truppen so verteilen, dass die Tragkraft möglichst dem
+        // Soll-Verhältnis der Sammelkategorien entspricht. Damit nähern sich
+        // die Rückkehrzeiten im Modus "Ausgeglichen" aneinander an.
+        for (const unit of config.unitOrder) {
+            let available = safeInt(remaining[unit], 0, 0);
+            const carry = UNIT_META[unit]?.carry || 0;
+            if (available <= 0 || carry <= 0) continue;
+
+            while (available > 0) {
+                let category = selectedCategories[0];
+                let bestDeficit = -Infinity;
+
+                for (const cat of selectedCategories) {
+                    const deficit = targetCarry[cat] - currentCarry[cat];
+                    if (deficit > bestDeficit) {
+                        bestDeficit = deficit;
+                        category = cat;
+                    }
+                }
+
+                let amount = available;
+                if (bestDeficit > 0) {
+                    amount = Math.min(available, Math.max(1, Math.floor(bestDeficit / carry)));
+                } else {
+                    // Nur Rundungsreste: an die relativ am stärksten
+                    // unterrepräsentierte Kategorie geben.
+                    category = [...selectedCategories].sort((a, b) => {
+                        const ratioA = targetCarry[a] > 0 ? currentCarry[a] / targetCarry[a] : Infinity;
+                        const ratioB = targetCarry[b] > 0 ? currentCarry[b] / targetCarry[b] : Infinity;
+                        return ratioA - ratioB;
+                    })[0];
+                    amount = 1;
+                }
+
+                result[category - 1][unit] = safeInt(result[category - 1][unit], 0, 0) + amount;
+                currentCarry[category] += amount * carry;
+                available -= amount;
+            }
+        }
+
+        return result;
+    }
+
+    function calculateUnitsPerVillage({ troopsAllowed, totalLoot, totalHaul, haulCategoryRate }) {
+        if (config.priority !== 'high') {
+            return calculateBalancedUnitsPerVillage({ ...troopsAllowed }, haulCategoryRate);
+        }
+
+        const result = { 0: {}, 1: {}, 2: {}, 3: {} };
+        const remaining = { ...troopsAllowed };
         const unitHaul = {};
         config.unitOrder.forEach(unit => { unitHaul[unit] = UNIT_META[unit]?.carry || 0; });
 
-        if (totalLoot > totalHaul) {
-            // Original-V2-Logik: höhere Kategorien zuerst bis gewünschte Laufzeit erreicht ist.
-            for (let j = 3; j >= 0; j--) {
-                let reach = haulCategoryRate[j + 1] || 0;
-                config.unitOrder.forEach(unit => {
-                    if (!Object.prototype.hasOwnProperty.call(troopsAllowed, unit) || reach <= 0 || !unitHaul[unit]) return;
-                    const amountNeeded = Math.floor(reach / unitHaul[unit]);
-                    const available = troopsAllowed[unit];
+        // "Hohe Kategorien zuerst": bewusst von Großartig -> Faul auffüllen.
+        for (let j = 3; j >= 0; j--) {
+            let reach = haulCategoryRate[j + 1] || 0;
+            if (reach <= 0) continue;
 
-                    if (amountNeeded > available) {
-                        result[j][unit] = available;
-                        reach -= available * unitHaul[unit];
-                        troopsAllowed[unit] = 0;
-                    } else {
-                        result[j][unit] = amountNeeded;
-                        reach = 0;
-                        troopsAllowed[unit] = available - amountNeeded;
-                    }
-                });
-            }
-        } else {
-            const troopNumber = Object.values(troopsAllowed).reduce((sum, value) => sum + value, 0);
+            config.unitOrder.forEach(unit => {
+                if (!Object.prototype.hasOwnProperty.call(remaining, unit) || reach <= 0 || !unitHaul[unit]) return;
+                const available = safeInt(remaining[unit], 0, 0);
+                if (available <= 0) return;
 
-            if (config.priority !== 'high' && troopNumber > 130) {
-                for (let j = 0; j < 4; j++) {
-                    for (const unit of Object.keys(troopsAllowed)) {
-                        const share = totalLoot > 0
-                            ? (totalLoot / totalHaul * (haulCategoryRate[j + 1] || 0)) * (troopsAllowed[unit] / totalLoot)
-                            : 0;
-                        result[j][unit] = Math.floor(Math.max(0, share));
-                    }
+                const amountNeeded = Math.max(0, Math.floor(reach / unitHaul[unit]));
+                const use = amountNeeded > available ? available : amountNeeded;
+
+                if (use > 0) {
+                    result[j][unit] = use;
+                    remaining[unit] = available - use;
+                    reach -= use * unitHaul[unit];
                 }
-            } else {
-                for (let j = 3; j >= 0; j--) {
-                    let reach = haulCategoryRate[j + 1] || 0;
-                    config.unitOrder.forEach(unit => {
-                        if (!Object.prototype.hasOwnProperty.call(troopsAllowed, unit) || reach <= 0 || !unitHaul[unit]) return;
-                        const amountNeeded = Math.floor(reach / unitHaul[unit]);
-                        const available = troopsAllowed[unit];
-
-                        if (amountNeeded > available) {
-                            result[j][unit] = available;
-                            reach -= available * unitHaul[unit];
-                            troopsAllowed[unit] = 0;
-                        } else {
-                            result[j][unit] = amountNeeded;
-                            reach = 0;
-                            troopsAllowed[unit] = available - amountNeeded;
-                        }
-                    });
-                }
-            }
+            });
         }
 
         return result;
@@ -4156,7 +4290,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
 
     /* =========================================================
-       Mass Scavenge+ Automate – Autopilot v1.1.1
+       Mass Scavenge+ Automate – Autopilot v1.2.0
        - Simulation und echter Autopilot nutzen dieselbe getestete Planungslogik
        - nutzt automatisch alle freien/freigeschalteten Kategorien
        - jeder einzelne Auftrag braucht mindestens 10 Bauernhofplätze
@@ -5009,6 +5143,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                     </div>
                     <div id="mspAutoState" style="font-weight:bold;margin-bottom:3px;">⚪ Bereit · ⏱ 00:00:00 · 🚀 0 · 🔄 0 · unterwegs 0</div>
                     <div id="mspAutoNext" style="font-size:11px;margin-bottom:6px;">Nächster Check: —</div>
+                    <div style="font-size:11px;margin-bottom:6px;padding:6px;border:1px solid #7f9e5b;border-radius:4px;background:#e6f0d8;"><b>✓ Verteilungskern v2.9.9:</b> „Ausgeglichen“ sichert zuerst mindestens 10 Bauernhofplätze je verwendeter Kategorie und verteilt danach die übrige Tragkraft. Die Automate-Bündelung bleibt zusätzlich aktiv.</div>
                     <div style="font-size:11px;margin-bottom:6px;">Kategorien: immer automatisch alle verfügbaren. Reichen die Truppen nicht für alle, wird die jeweils schwächste Kategorie weggelassen und neu gerechnet.</div>
                     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px;margin-bottom:6px;padding:6px;border:1px solid #b79a63;border-radius:4px;background:#fff4d8;">
                         <b>⏳ Bündelungsfenster:</b>
