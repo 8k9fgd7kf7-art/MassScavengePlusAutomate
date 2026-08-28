@@ -48,7 +48,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.2.0',
+        version: '1.2.1',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -1345,6 +1345,58 @@
     }
 }
 
+
+/* MSP_AUTOMATE_UI_CLEANUP_121 */
+#${APP.id} #mspAutoPanel .msp-auto-actions { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:7px; }
+#${APP.id} #mspAutoPanel .msp-auto-statusbar {
+    display:flex; align-items:stretch; flex-wrap:wrap; border:1px solid #c5a362;
+    border-radius:6px; overflow:hidden; background:#fff7df; margin:6px 0 8px;
+}
+#${APP.id} #mspAutoPanel .msp-auto-status-main,
+#${APP.id} #mspAutoPanel .msp-auto-stat { padding:7px 10px; border-right:1px solid #dec78e; box-sizing:border-box; }
+#${APP.id} #mspAutoPanel .msp-auto-status-main { flex:1 1 220px; }
+#${APP.id} #mspAutoPanel .msp-auto-stat { flex:0 1 105px; min-width:90px; text-align:center; }
+#${APP.id} #mspAutoPanel .msp-auto-stat b,
+#${APP.id} #mspAutoPanel .msp-auto-status-main b { display:block; font-size:12px; }
+#${APP.id} #mspAutoPanel .msp-auto-stat small,
+#${APP.id} #mspAutoPanel .msp-auto-status-main small { display:block; font-size:10px; opacity:.78; margin-top:2px; }
+#${APP.id} #mspAutoPanel .msp-auto-settings {
+    display:flex; gap:7px; align-items:center; flex-wrap:wrap; padding:7px 8px;
+    border:1px solid #d0b26c; border-radius:5px; background:#fff5d7; margin:6px 0;
+}
+#${APP.id} #mspAutoPanel .msp-auto-setting-label { font-weight:bold; font-size:11px; }
+#${APP.id} #mspAutoPanel .msp-auto-quick-row { display:flex; gap:5px; align-items:center; flex-wrap:wrap; flex:1 1 260px; }
+#${APP.id} #mspAutoPanel .msp-auto-quick-row .msp-btn { padding:5px 8px; min-height:27px; }
+#${APP.id} #mspAutoPanel .msp-auto-details { display:none; margin:7px 0; }
+#${APP.id} #mspAutoPanel.msp-auto-details-open .msp-auto-details {
+    display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px;
+}
+#${APP.id} #mspAutoPanel .msp-auto-info {
+    padding:8px; border-radius:5px; border:1px solid #c3a267; background:#fff5d8;
+    font-size:11px; line-height:1.4;
+}
+#${APP.id} #mspAutoPanel .msp-auto-info.green { background:#eaf4dc; border-color:#7f9e5b; }
+#${APP.id} #mspAutoPanel .msp-auto-info.blue { background:#e8f1f9; border-color:#779fbe; }
+#${APP.id} #mspAutoPanel .msp-auto-info.red { background:#ffe8df; border-color:#b75a47; }
+#${APP.id} #mspAutoPanel .msp-auto-log-head {
+    display:flex; align-items:center; gap:8px; justify-content:space-between;
+    padding:6px 8px; margin-top:7px; background:#292929; color:#eee;
+    border-radius:5px 5px 0 0; font-size:11px;
+}
+#${APP.id} #mspAutoPanel #mspAutoLog { border-radius:0 0 5px 5px !important; margin-top:0 !important; }
+.msp-quick-modal-overlay .msp-q-move-up,
+.msp-quick-modal-overlay .msp-q-move-down {
+    width:24px; min-width:24px; height:25px; padding:0; border:1px solid #a98b57;
+    border-radius:3px; background:#f6e8c5; cursor:pointer;
+}
+.msp-quick-modal-overlay .msp-q-move-up:disabled,
+.msp-quick-modal-overlay .msp-q-move-down:disabled { opacity:.35; cursor:default; }
+@media(max-width:760px){
+    #${APP.id} #mspAutoPanel.msp-auto-details-open .msp-auto-details { grid-template-columns:1fr; }
+    #${APP.id} #mspAutoPanel .msp-auto-stat { flex:1 1 30%; }
+    #${APP.id} #mspAutoPanel .msp-auto-status-main { flex:1 1 100%; }
+}
+
 `;
 
         $('<style>', { id: APP.styleId }).text(css).appendTo(document.head);
@@ -2482,7 +2534,10 @@
             if (!grid.length) return;
 
             const rows = draftButtons.map((item, index) => `
-                <div>${index + 1}</div>
+                <div class="msp-q-order" style="display:flex;gap:2px;align-items:center;justify-content:center;">
+                    <button type="button" class="msp-q-move-up" data-index="${index}" title="Nach oben" ${index === 0 ? 'disabled' : ''}>↑</button>
+                    <button type="button" class="msp-q-move-down" data-index="${index}" title="Nach unten" ${index === draftButtons.length - 1 ? 'disabled' : ''}>↓</button>
+                </div>
                 <input type="text" class="msp-q-label" data-index="${index}" maxlength="24" value="${escapeHtml(item.label)}">
                 <select class="msp-q-type" data-index="${index}">
                     <option value="hours" ${item.type === 'hours' ? 'selected' : ''}>+X Stunden</option>
@@ -2500,7 +2555,7 @@
             `).join('');
 
             grid.html(`
-                <div class="msp-quick-settings-head">#</div>
+                <div class="msp-quick-settings-head">↕</div>
                 <div class="msp-quick-settings-head">Anzeige</div>
                 <div class="msp-quick-settings-head">Logik</div>
                 <div class="msp-quick-settings-head">Wert</div>
@@ -2520,7 +2575,8 @@
         <div class="msp-modal-body">
             <p style="margin-top:0;font-size:11px;">
                 <b>Heute</b> bleibt immer heute. <b>Morgen</b> ist immer der nächste Kalendertag.
-                <b>Nächster Zeitpunkt</b> nimmt heute, solange die Uhrzeit noch kommt – sonst morgen.
+                <b>Nächster Zeitpunkt</b> nimmt heute, solange die Uhrzeit noch kommt – sonst morgen.<br>
+                Mit <b>↑ / ↓</b> bestimmst du die Reihenfolge der Schnellbuttons.
             </p>
             <div class="msp-quick-settings-grid" id="mspQuickGrid"></div>
             <div class="msp-q-add-row">
@@ -2574,6 +2630,16 @@
                 draftButtons[index].value = type === 'hours' ? '3' : '22:30';
                 renderEditorRows();
             }
+        });
+
+        modal.on('click', '.msp-q-move-up,.msp-q-move-down', function () {
+            const index = Number($(this).data('index'));
+            if (!Number.isInteger(index) || !draftButtons[index]) return;
+            const direction = $(this).hasClass('msp-q-move-up') ? -1 : 1;
+            const target = index + direction;
+            if (target < 0 || target >= draftButtons.length) return;
+            [draftButtons[index], draftButtons[target]] = [draftButtons[target], draftButtons[index]];
+            renderEditorRows();
         });
 
         modal.on('click', '.msp-q-delete', function () {
@@ -2639,6 +2705,8 @@
             config.quickButtons = result;
             saveConfig();
             renderQuickButtons();
+            renderAutomateQuickButtons();
+            updateAutomateDeadlineBadge();
             close();
             notifySuccess('Schnellbuttons gespeichert.');
         });
@@ -4290,7 +4358,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
 
     /* =========================================================
-       Mass Scavenge+ Automate – Autopilot v1.2.0
+       Mass Scavenge+ Automate – Autopilot v1.2.1
        - Simulation und echter Autopilot nutzen dieselbe getestete Planungslogik
        - nutzt automatisch alle freien/freigeschalteten Kategorien
        - jeder einzelne Auftrag braucht mindestens 10 Bauernhofplätze
@@ -4340,7 +4408,11 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         const occupied = AUTO.busy.size;
         const suffix = extra ? ` · ${extra}` : '';
         const modeText = AUTO.mode === 'live' ? '🔴 Autopilot läuft' : '🟢 Simulation läuft';
-        $('#mspAutoState').text(`${AUTO.running ? modeText : '⚪ Bereit'} · ⏱ ${runtime} · 🚀 ${AUTO.launched} · 🔄 ${AUTO.cycles} · unterwegs ${occupied}${suffix}`);
+        $('#mspAutoState').text(`${AUTO.running ? modeText : '⚪ Bereit'} · ⏱ ${runtime}${suffix}`);
+        $('#mspAutoLaunchedStat').text(`🚀 ${AUTO.launched}`);
+        $('#mspAutoCycleStat').text(`🔄 ${AUTO.cycles}`);
+        $('#mspAutoBusyStat').text(`📦 ${occupied}`);
+        updateAutomateDeadlineBadge();
     }
 
     function autoTime() {
@@ -5128,38 +5200,130 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         $('#mspStatusCategories').text('Kategorien: automatisch');
     }
 
+    function renderAutomateQuickButtons() {
+        const host = $('#mspAutoQuickButtons');
+        if (!host.length) return;
+        const buttons = Array.isArray(config.quickButtons) ? config.quickButtons : [];
+        host.html(buttons.map((item, index) =>
+            `<button class="msp-btn msp-btn-secondary msp-auto-quick-preset" type="button" data-index="${index}" title="${escapeHtml(quickTypeLabel(item.type))}: ${escapeHtml(String(item.value))}">${escapeHtml(item.label)}</button>`
+        ).join(' '));
+    }
+
+    function updateAutomateDeadlineBadge() {
+        serverDateMs = parseServerDate();
+        let label = '—';
+        let remaining = '';
+        try {
+            const times = getEffectiveTimes();
+            const mode = $('input[name="mspTimeMode"]:checked').val();
+            if (mode === 'runtime') {
+                const maxH = Math.max(Number(times.off || 0), Number(times.def || 0));
+                if (Number.isFinite(maxH) && maxH > 0) {
+                    const target = new Date(serverDateMs + maxH * 3600000);
+                    label = target.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
+                    remaining = safetyRuntimeLabel(maxH);
+                }
+            } else {
+                const offAt = parseLocalDateTime($('#mspOffDate').val(), $('#mspOffTime').val());
+                const defAt = parseLocalDateTime($('#mspDefDate').val(), $('#mspDefTime').val());
+                const values = [offAt, defAt].filter(v => Number.isFinite(v) && v > serverDateMs);
+                if (values.length) {
+                    const targetAt = Math.max(...values);
+                    label = new Date(targetAt).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
+                    remaining = safetyRuntimeLabel((targetAt - serverDateMs) / 3600000);
+                }
+            }
+        } catch {}
+        $('#mspAutoDeadlineValue').text(label);
+        $('#mspAutoDeadlineRemaining').text(remaining ? `noch ${remaining}` : 'Deadline');
+    }
+
     function initAutomateSimulation() {
         const root = $(`#${APP.id}`);
         if (!root.length || $('#mspAutoPanel').length) return;
+
         const panel = $(`
             <div class="msp-panel" id="mspAutoPanel" style="border:2px solid #8b6914;">
-                <div class="msp-panel-title">🤖 MassScavenge Automate v${APP.version} <span class="msp-section-note">Simulation + Autopilot</span></div>
+                <div class="msp-panel-title">
+                    🤖 MassScavenge Automate v${APP.version}
+                    <span class="msp-section-note">Simulation + Autopilot</span>
+                </div>
                 <div class="msp-panel-content">
-                    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:7px;">
+                    <div class="msp-auto-actions">
                         <button class="msp-btn msp-btn-secondary" id="mspAutoSimStart">🧪 Simulation starten</button>
                         <button class="msp-btn msp-btn-success" id="mspAutoLiveStart">▶ Autopilot starten</button>
                         <button class="msp-btn msp-btn-danger" id="mspAutoStop" disabled>■ Stoppen</button>
                         <button class="msp-btn msp-btn-secondary" id="mspAutoCopy">📋 Protokoll kopieren</button>
+                        <button class="msp-btn msp-btn-secondary" id="mspAutoDetailsToggle">▾ Details</button>
                     </div>
-                    <div id="mspAutoState" style="font-weight:bold;margin-bottom:3px;">⚪ Bereit · ⏱ 00:00:00 · 🚀 0 · 🔄 0 · unterwegs 0</div>
-                    <div id="mspAutoNext" style="font-size:11px;margin-bottom:6px;">Nächster Check: —</div>
-                    <div style="font-size:11px;margin-bottom:6px;padding:6px;border:1px solid #7f9e5b;border-radius:4px;background:#e6f0d8;"><b>✓ Verteilungskern v2.9.9:</b> „Ausgeglichen“ sichert zuerst mindestens 10 Bauernhofplätze je verwendeter Kategorie und verteilt danach die übrige Tragkraft. Die Automate-Bündelung bleibt zusätzlich aktiv.</div>
-                    <div style="font-size:11px;margin-bottom:6px;">Kategorien: immer automatisch alle verfügbaren. Reichen die Truppen nicht für alle, wird die jeweils schwächste Kategorie weggelassen und neu gerechnet.</div>
-                    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px;margin-bottom:6px;padding:6px;border:1px solid #b79a63;border-radius:4px;background:#fff4d8;">
-                        <b>⏳ Bündelungsfenster:</b>
-                        <input id="mspAutoBundleMinutes" type="number" min="0" max="60" step="1" value="${Math.round(AUTO.bundleWindowMs / 60000)}" style="width:58px;">
-                        <span>Min. · Kommen im selben Dorf weitere Kategorien bald zurück, wartet dieses Dorf. Danach wird mit der echten Uhrzeit neu geplant; deine Rückkehrgrenze bleibt hart.</span>
+
+                    <div class="msp-auto-statusbar">
+                        <div class="msp-auto-status-main">
+                            <b id="mspAutoState">⚪ Bereit · ⏱ 00:00:00</b>
+                            <small id="mspAutoNext">Nächster Check: —</small>
+                        </div>
+                        <div class="msp-auto-stat"><b id="mspAutoLaunchedStat">🚀 0</b><small>gestartet</small></div>
+                        <div class="msp-auto-stat"><b id="mspAutoCycleStat">🔄 0</b><small>Zyklen</small></div>
+                        <div class="msp-auto-stat"><b id="mspAutoBusyStat">📦 0</b><small>unterwegs</small></div>
+                        <div class="msp-auto-stat"><b id="mspAutoDeadlineValue">—</b><small id="mspAutoDeadlineRemaining">Deadline</small></div>
                     </div>
-                    <div style="font-size:11px;margin-bottom:6px;padding:6px;border:1px solid #c9a227;border-radius:4px;"><b>Live-Sicherheit:</b> Vor jedem echten Versand werden Dörfer, freie Kategorien und Truppen erneut vom Server geladen. Bei einer unklaren Versandantwort stoppt der Autopilot statt automatisch erneut zu senden.</div>
-                    <div style="font-size:11px;margin-bottom:6px;padding:6px;border:1px solid #9b3b2e;border-radius:4px;background:#ffe8df;"><b>⏰ Einmalige Deadline:</b> „Heute“, „Morgen“ und Laufzeiten wie „4h“ werden beim Start auf ein festes Datum/eine feste Uhrzeit eingefroren. Ist diese Deadline erreicht, beendet sich der Autopilot vollständig.</div>
-                    <pre id="mspAutoLog" style="height:210px;overflow:auto;white-space:pre-wrap;background:#1f1f1f;color:#eee;padding:8px;border-radius:5px;margin:0;font:11px/1.4 Consolas,monospace;"></pre>
+
+                    <div class="msp-auto-settings">
+                        <span class="msp-auto-setting-label">⏳ Bündeln:</span>
+                        <input id="mspAutoBundleMinutes" type="number" min="0" max="60" step="1"
+                            value="${Math.round(AUTO.bundleWindowMs / 60000)}" style="width:58px;">
+                        <span style="font-size:11px;">Min.</span>
+                        <span class="msp-auto-setting-label" style="margin-left:4px;">⚡ Schnell:</span>
+                        <span class="msp-auto-quick-row" id="mspAutoQuickButtons"></span>
+                        <button class="msp-mini-btn" id="mspAutoQuickSettingsBtn" type="button" title="Schnellbuttons personalisieren und sortieren">⚙</button>
+                    </div>
+
+                    <div class="msp-auto-details">
+                        <div class="msp-auto-info green">
+                            <b>✓ Verteilungskern v2.9.9</b><br>
+                            „Ausgeglichen“ sichert zuerst mindestens 10 Bauernhofplätze je verwendeter Kategorie und verteilt danach die übrige Tragkraft.
+                        </div>
+                        <div class="msp-auto-info">
+                            <b>⏳ Bündelung pro Dorf</b><br>
+                            Kommen weitere Kategorien innerhalb des Fensters zurück, wartet nur dieses Dorf und wird anschließend frisch neu geplant.
+                        </div>
+                        <div class="msp-auto-info blue">
+                            <b>🛡 Live-Sicherheit</b><br>
+                            Vor jedem echten Versand werden Dörfer, Kategorien und Truppen erneut geladen. Bei unklarer Antwort stoppt der Autopilot.
+                        </div>
+                        <div class="msp-auto-info red" style="grid-column:1/-1;">
+                            <b>⏰ Einmalige Deadline</b> · „Heute“, „Morgen“ und Laufzeiten wie „4h“ werden beim Start eingefroren. Danach beendet sich der Autopilot vollständig.
+                        </div>
+                    </div>
+
+                    <div class="msp-auto-log-head">
+                        <b>📋 Protokoll</b>
+                        <span>laufende Diagnose</span>
+                    </div>
+                    <pre id="mspAutoLog" style="height:210px;overflow:auto;white-space:pre-wrap;background:#1f1f1f;color:#eee;padding:8px;margin:0;font:11px/1.4 Consolas,monospace;"></pre>
                 </div>
             </div>`);
+
         root.find('.msp-body').prepend(panel);
+
         $('#mspAutoSimStart').on('click', () => autoStart('sim'));
         $('#mspAutoLiveStart').on('click', () => autoStart('live'));
         $('#mspAutoStop').on('click', autoStop);
         $('#mspAutoCopy').on('click', autoCopyLog);
+
+        $('#mspAutoDetailsToggle').on('click', function () {
+            const open = !$('#mspAutoPanel').hasClass('msp-auto-details-open');
+            $('#mspAutoPanel').toggleClass('msp-auto-details-open', open);
+            $(this).text(open ? '▴ Details' : '▾ Details');
+        });
+
+        $('#mspAutoQuickButtons').on('click', '.msp-auto-quick-preset', function () {
+            applyQuickPreset(Number($(this).data('index')));
+            renderAutomateQuickButtons();
+            updateAutomateDeadlineBadge();
+        });
+        $('#mspAutoQuickSettingsBtn').on('click', openQuickSettingsModal);
+
         $('#mspAutoBundleMinutes').on('change input', function () {
             const minutes = Math.max(0, Math.min(60, Number($(this).val()) || 0));
             $(this).val(minutes);
@@ -5169,6 +5333,9 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                 autoLog(`⚙ Bündelungsfenster auf ${minutes} Min. geändert · gilt ab der nächsten frischen Planung.`);
             }
         });
+
+        renderAutomateQuickButtons();
+        updateAutomateDeadlineBadge();
     }
 
     function init() {
