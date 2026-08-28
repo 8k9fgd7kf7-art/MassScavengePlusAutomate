@@ -48,7 +48,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.2.3',
+        version: '1.2.4',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -1749,7 +1749,7 @@
                     <div class="msp-quick-box-head">Schnellauswahl</div>
                     <div class="msp-quick-box-row">
                         <span id="mspQuickButtons"></span>
-                        <button class="msp-btn msp-btn-secondary msp-quick-add-inline" id="mspQuickAddInline" type="button" title="Schnellbutton hinzufügen">＋</button>
+                        <button class="msp-btn msp-btn-secondary msp-quick-add-inline" id="mspQuickAddInline" type="button" title="Neuen Schnellbutton hinzufügen">＋</button>
                         <button class="msp-btn msp-btn-secondary msp-quick-personalize" id="mspQuickSettingsBtn" type="button" title="Schnellbuttons einstellen und sortieren">⚙ Personalisieren</button>
                     </div>
                     <div class="msp-quick-box-foot" id="mspQuickHint">Alle Schnellbuttons setzen die Laufzeit / Rückkehr direkt für Off und Def.</div>
@@ -2083,7 +2083,41 @@
             applyQuickPreset(Number($(this).data('index')));
         });
         $('#mspQuickSettingsBtn').on('click', openQuickSettingsModal);
-        $('#mspQuickAddInline').on('click', openQuickSettingsModal);
+        $('#mspQuickAddInline').on('click', function () {
+            const buttons = Array.isArray(config.quickButtons) ? [...config.quickButtons] : [];
+            if (buttons.length >= 12) {
+                notifyError('Maximal 12 Schnellbuttons sind möglich.');
+                return;
+            }
+
+            buttons.push({
+                label: '+3h',
+                type: 'hours',
+                value: '3',
+                distribution: 'any'
+            });
+
+            config.quickButtons = buttons;
+            saveConfig();
+            renderQuickButtons();
+
+            // Direkt danach bearbeiten/umbenennen können.
+            openQuickSettingsModal();
+
+            // Im Editor zur neu angelegten letzten Zeile scrollen.
+            setTimeout(() => {
+                const modalBox = document.querySelector('#mspQuickModal .msp-modal-box');
+                const rows = document.querySelectorAll('#mspQuickGrid .msp-q-label');
+                const last = rows[rows.length - 1];
+                if (last) {
+                    last.focus();
+                    last.select?.();
+                    last.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                } else if (modalBox) {
+                    modalBox.scrollTop = modalBox.scrollHeight;
+                }
+            }, 40);
+        });
 
         $('#mspLoadVillagesBtn').on('click', loadVillagesForSelection);
         $('#mspVillageSearch,#mspVillageTypeFilter,#mspOnlyUsableVillages').on('input change', renderVillageSelection);
@@ -4447,7 +4481,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
 
     /* =========================================================
-       Mass Scavenge+ Automate – Autopilot v1.2.3
+       Mass Scavenge+ Automate – Autopilot v1.2.4
        - Simulation und echter Autopilot nutzen dieselbe getestete Planungslogik
        - nutzt automatisch alle freien/freigeschalteten Kategorien
        - jeder einzelne Auftrag braucht mindestens 10 Bauernhofplätze
