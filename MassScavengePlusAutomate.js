@@ -48,7 +48,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.2.1',
+        version: '1.2.2',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -1365,8 +1365,6 @@
     border:1px solid #d0b26c; border-radius:5px; background:#fff5d7; margin:6px 0;
 }
 #${APP.id} #mspAutoPanel .msp-auto-setting-label { font-weight:bold; font-size:11px; }
-#${APP.id} #mspAutoPanel .msp-auto-quick-row { display:flex; gap:5px; align-items:center; flex-wrap:wrap; flex:1 1 260px; }
-#${APP.id} #mspAutoPanel .msp-auto-quick-row .msp-btn { padding:5px 8px; min-height:27px; }
 #${APP.id} #mspAutoPanel .msp-auto-details { display:none; margin:7px 0; }
 #${APP.id} #mspAutoPanel.msp-auto-details-open .msp-auto-details {
     display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px;
@@ -2705,7 +2703,6 @@
             config.quickButtons = result;
             saveConfig();
             renderQuickButtons();
-            renderAutomateQuickButtons();
             updateAutomateDeadlineBadge();
             close();
             notifySuccess('Schnellbuttons gespeichert.');
@@ -4358,7 +4355,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
 
     /* =========================================================
-       Mass Scavenge+ Automate – Autopilot v1.2.1
+       Mass Scavenge+ Automate – Autopilot v1.2.2
        - Simulation und echter Autopilot nutzen dieselbe getestete Planungslogik
        - nutzt automatisch alle freien/freigeschalteten Kategorien
        - jeder einzelne Auftrag braucht mindestens 10 Bauernhofplätze
@@ -5200,15 +5197,6 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         $('#mspStatusCategories').text('Kategorien: automatisch');
     }
 
-    function renderAutomateQuickButtons() {
-        const host = $('#mspAutoQuickButtons');
-        if (!host.length) return;
-        const buttons = Array.isArray(config.quickButtons) ? config.quickButtons : [];
-        host.html(buttons.map((item, index) =>
-            `<button class="msp-btn msp-btn-secondary msp-auto-quick-preset" type="button" data-index="${index}" title="${escapeHtml(quickTypeLabel(item.type))}: ${escapeHtml(String(item.value))}">${escapeHtml(item.label)}</button>`
-        ).join(' '));
-    }
-
     function updateAutomateDeadlineBadge() {
         serverDateMs = parseServerDate();
         let label = '—';
@@ -5273,9 +5261,6 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                         <input id="mspAutoBundleMinutes" type="number" min="0" max="60" step="1"
                             value="${Math.round(AUTO.bundleWindowMs / 60000)}" style="width:58px;">
                         <span style="font-size:11px;">Min.</span>
-                        <span class="msp-auto-setting-label" style="margin-left:4px;">⚡ Schnell:</span>
-                        <span class="msp-auto-quick-row" id="mspAutoQuickButtons"></span>
-                        <button class="msp-mini-btn" id="mspAutoQuickSettingsBtn" type="button" title="Schnellbuttons personalisieren und sortieren">⚙</button>
                     </div>
 
                     <div class="msp-auto-details">
@@ -5317,13 +5302,6 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
             $(this).text(open ? '▴ Details' : '▾ Details');
         });
 
-        $('#mspAutoQuickButtons').on('click', '.msp-auto-quick-preset', function () {
-            applyQuickPreset(Number($(this).data('index')));
-            renderAutomateQuickButtons();
-            updateAutomateDeadlineBadge();
-        });
-        $('#mspAutoQuickSettingsBtn').on('click', openQuickSettingsModal);
-
         $('#mspAutoBundleMinutes').on('change input', function () {
             const minutes = Math.max(0, Math.min(60, Number($(this).val()) || 0));
             $(this).val(minutes);
@@ -5334,7 +5312,6 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
             }
         });
 
-        renderAutomateQuickButtons();
         updateAutomateDeadlineBadge();
     }
 
