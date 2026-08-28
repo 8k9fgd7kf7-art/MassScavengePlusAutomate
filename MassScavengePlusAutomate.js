@@ -48,7 +48,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.2.2',
+        version: '1.2.3',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -163,10 +163,17 @@
             runtime: { off: 4, def: 3 },
             customQuickTime: '22:30',
             quickButtons: [
+                { label: '+1h', type: 'hours', value: '1', distribution: 'any' },
+                { label: '+2h', type: 'hours', value: '2', distribution: 'any' },
                 { label: '+3h', type: 'hours', value: '3', distribution: 'high' },
-                { label: '23:00', type: 'next', value: '23:00', distribution: 'any' },
+                { label: '+4h', type: 'hours', value: '4', distribution: 'any' },
+                { label: '+6h', type: 'hours', value: '6', distribution: 'any' },
+                { label: '+8h', type: 'hours', value: '8', distribution: 'any' },
+                { label: 'Heute 22:30', type: 'today', value: '22:30', distribution: 'any' },
+                { label: 'Heute 23:00', type: 'today', value: '23:00', distribution: 'any' },
                 { label: 'Morgen 07:00', type: 'tomorrow', value: '07:00', distribution: 'balanced' },
-                { label: '22:30', type: 'today', value: '22:30', distribution: 'any' }
+                { label: 'Morgen 09:00', type: 'tomorrow', value: '09:00', distribution: 'balanced' },
+                { label: 'Nächster 22:30', type: 'next', value: '22:30', distribution: 'any' }
             ],
             returnTime: {
                 off: addHoursParts(4),
@@ -243,6 +250,16 @@
             : '22:30';
         const validQuickTypes = new Set(['hours', 'today', 'tomorrow', 'next']);
         const defaults = base.quickButtons;
+
+        // v1.2.3: Nur den alten, unveränderten 4er-Standard automatisch auf die neue
+        // Schnellauswahl hochziehen. Eigene Schnellbuttons des Nutzers bleiben unangetastet.
+        const oldDefaultSignature = '+3h|hours|3;23:00|next|23:00;Morgen 07:00|tomorrow|07:00;22:30|today|22:30';
+        const rawQuickSignature = Array.isArray(raw?.quickButtons)
+            ? raw.quickButtons.map(item => `${item?.label || ''}|${item?.type || ''}|${item?.value || ''}`).join(';')
+            : '';
+        if (rawQuickSignature === oldDefaultSignature) {
+            raw = { ...(raw || {}), quickButtons: base.quickButtons.map(item => ({ ...item })) };
+        }
         result.quickButtons = Array.isArray(raw?.quickButtons)
             ? raw.quickButtons.slice(0, 6).map((item, index) => {
                 const fallback = defaults[index] || defaults[0];
@@ -1395,6 +1412,69 @@
     #${APP.id} #mspAutoPanel .msp-auto-status-main { flex:1 1 100%; }
 }
 
+
+/* MSP 1.2.3 – Laufzeit-Schnellauswahl + Bündeln in Statusleiste */
+#${APP.id} #mspTimePanel .msp-quick-box {
+    display:block !important;
+    margin-top:9px !important;
+    padding:7px 8px 6px !important;
+    border:1px solid #d0b26c;
+    border-radius:5px;
+    background:#fff7df;
+}
+#${APP.id} #mspTimePanel .msp-quick-box-head {
+    font-size:11px;
+    font-weight:bold;
+    margin-bottom:5px;
+}
+#${APP.id} #mspTimePanel .msp-quick-box-row {
+    display:flex;
+    gap:5px;
+    align-items:stretch;
+    flex-wrap:wrap;
+}
+#${APP.id} #mspTimePanel #mspQuickButtons {
+    display:flex;
+    gap:5px;
+    flex-wrap:wrap;
+    flex:1 1 auto;
+}
+#${APP.id} #mspTimePanel .msp-quick-preset {
+    min-width:68px !important;
+    padding:6px 8px !important;
+    line-height:1.1 !important;
+}
+#${APP.id} #mspTimePanel .msp-quick-add-inline {
+    min-width:38px;
+    font-size:17px;
+    padding:3px 8px;
+}
+#${APP.id} #mspTimePanel .msp-quick-personalize {
+    white-space:nowrap;
+}
+#${APP.id} #mspTimePanel .msp-quick-box-foot {
+    margin-top:5px;
+    padding-top:5px;
+    border-top:1px solid #ead7a4;
+    font-size:10px;
+    opacity:.72;
+}
+#${APP.id} #mspAutoPanel .msp-auto-bundle-stat {
+    min-width:115px;
+}
+#${APP.id} #mspAutoPanel .msp-auto-bundle-stat small {
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    gap:3px;
+}
+#${APP.id} #mspAutoPanel .msp-auto-bundle-stat input {
+    width:46px;
+    height:23px;
+    padding:1px 3px;
+    text-align:center;
+}
+
 `;
 
         $('<style>', { id: APP.styleId }).text(css).appendTo(document.head);
@@ -1665,10 +1745,14 @@
                     </div>
                 </div>
 
-                <div class="msp-quick-v28">
-                    <span style="font-size:11px;font-weight:bold;">Schnell:</span>
-                    <span id="mspQuickButtons"></span>
-                    <button class="msp-mini-btn" id="mspQuickSettingsBtn" type="button" title="Schnellbuttons einstellen">⚙</button>
+                <div class="msp-quick-v28 msp-quick-box">
+                    <div class="msp-quick-box-head">Schnellauswahl</div>
+                    <div class="msp-quick-box-row">
+                        <span id="mspQuickButtons"></span>
+                        <button class="msp-btn msp-btn-secondary msp-quick-add-inline" id="mspQuickAddInline" type="button" title="Schnellbutton hinzufügen">＋</button>
+                        <button class="msp-btn msp-btn-secondary msp-quick-personalize" id="mspQuickSettingsBtn" type="button" title="Schnellbuttons einstellen und sortieren">⚙ Personalisieren</button>
+                    </div>
+                    <div class="msp-quick-box-foot" id="mspQuickHint">Alle Schnellbuttons setzen die Laufzeit / Rückkehr direkt für Off und Def.</div>
                 </div>
             </div>
         </section>
@@ -1999,6 +2083,7 @@
             applyQuickPreset(Number($(this).data('index')));
         });
         $('#mspQuickSettingsBtn').on('click', openQuickSettingsModal);
+        $('#mspQuickAddInline').on('click', openQuickSettingsModal);
 
         $('#mspLoadVillagesBtn').on('click', loadVillagesForSelection);
         $('#mspVillageSearch,#mspVillageTypeFilter,#mspOnlyUsableVillages').on('input change', renderVillageSelection);
@@ -2663,10 +2748,17 @@
 
         $('#mspQuickDefaults').on('click', function () {
             draftButtons = [
+                { label: '+1h', type: 'hours', value: '1', distribution: 'any' },
+                { label: '+2h', type: 'hours', value: '2', distribution: 'any' },
                 { label: '+3h', type: 'hours', value: '3', distribution: 'high' },
-                { label: '23:00', type: 'next', value: '23:00', distribution: 'any' },
+                { label: '+4h', type: 'hours', value: '4', distribution: 'any' },
+                { label: '+6h', type: 'hours', value: '6', distribution: 'any' },
+                { label: '+8h', type: 'hours', value: '8', distribution: 'any' },
+                { label: 'Heute 22:30', type: 'today', value: '22:30', distribution: 'any' },
+                { label: 'Heute 23:00', type: 'today', value: '23:00', distribution: 'any' },
                 { label: 'Morgen 07:00', type: 'tomorrow', value: '07:00', distribution: 'balanced' },
-                { label: '22:30', type: 'today', value: '22:30', distribution: 'any' }
+                { label: 'Morgen 09:00', type: 'tomorrow', value: '09:00', distribution: 'balanced' },
+                { label: 'Nächster 22:30', type: 'next', value: '22:30', distribution: 'any' }
             ];
             renderEditorRows();
         });
@@ -4355,7 +4447,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
 
     /* =========================================================
-       Mass Scavenge+ Automate – Autopilot v1.2.2
+       Mass Scavenge+ Automate – Autopilot v1.2.3
        - Simulation und echter Autopilot nutzen dieselbe getestete Planungslogik
        - nutzt automatisch alle freien/freigeschalteten Kategorien
        - jeder einzelne Auftrag braucht mindestens 10 Bauernhofplätze
@@ -5184,7 +5276,6 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         $('#mspCalculatePanel').remove();
         $('#mspPreviewPanel').remove();
         $('#mspAnalysisPanel').remove();
-        $('#mspTimePanel .msp-quick-v28').remove();
         $('#mspQuickModal').remove();
 
         // Verbliebene Bereiche für die Automate-Oberfläche neu nummerieren.
@@ -5253,14 +5344,12 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                         <div class="msp-auto-stat"><b id="mspAutoLaunchedStat">🚀 0</b><small>gestartet</small></div>
                         <div class="msp-auto-stat"><b id="mspAutoCycleStat">🔄 0</b><small>Zyklen</small></div>
                         <div class="msp-auto-stat"><b id="mspAutoBusyStat">📦 0</b><small>unterwegs</small></div>
+                        <div class="msp-auto-stat msp-auto-bundle-stat">
+                            <b>⏳ Bündeln</b>
+                            <small><input id="mspAutoBundleMinutes" type="number" min="0" max="60" step="1"
+                                value="${Math.round(AUTO.bundleWindowMs / 60000)}"> Min.</small>
+                        </div>
                         <div class="msp-auto-stat"><b id="mspAutoDeadlineValue">—</b><small id="mspAutoDeadlineRemaining">Deadline</small></div>
-                    </div>
-
-                    <div class="msp-auto-settings">
-                        <span class="msp-auto-setting-label">⏳ Bündeln:</span>
-                        <input id="mspAutoBundleMinutes" type="number" min="0" max="60" step="1"
-                            value="${Math.round(AUTO.bundleWindowMs / 60000)}" style="width:58px;">
-                        <span style="font-size:11px;">Min.</span>
                     </div>
 
                     <div class="msp-auto-details">
