@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.5
+// MassScavengePlusAutomate v1.3.6
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.5',
+        version: '1.3.6',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -1584,7 +1584,7 @@
 }
 
 
-/* v1.3.5 – kompakter UI-Polish */
+/* v1.3.6 – kompakter UI-Polish */
 #${APP.id} .msp-time-block {
     padding:8px;
     border:1px solid #d3bd88;
@@ -1623,6 +1623,14 @@
 #${APP.id} .msp-time-side.msp-time-past {
     border-color:#d77b70; background:#fff4f2;
     box-shadow:inset 0 0 0 1px rgba(156,31,22,.08);
+}
+/* v1.3.6 – Autopilot-Schnellwahl links und einklappbare Verteilung */
+#${APP.id} #mspAutoStopQuickButtons {
+    flex:0 1 auto !important;
+    justify-content:flex-start !important;
+}
+#${APP.id} .msp-distribution-summary {
+    margin-left:5px; font-size:10px; font-weight:400; opacity:.72;
 }
 @media(max-width:760px){
     #${APP.id} .msp-quick-unified-head { align-items:flex-start; }
@@ -1852,7 +1860,7 @@
             </section>
 
             <section class="msp-panel" id="mspDistributionPanel">
-                <div class="msp-panel-title">3. Verteilung</div>
+                <div class="msp-panel-title">3. Verteilung <span class="msp-distribution-summary" id="mspDistributionSummary">· Ausgeglichen</span></div>
                 <div class="msp-panel-content">
                     <div class="msp-priority">
                         <label><input type="radio" name="mspPriority" value="balanced"> <b>Ausgeglichen</b><br><small>Truppen möglichst auf aktive Kategorien verteilen.</small></label>
@@ -2234,6 +2242,7 @@
 
         $('input[name="mspPriority"]').on('change', () => {
             readFormIntoConfig();
+            updateDistributionPanelTitle();
             clearPreview();
         });
 
@@ -2574,11 +2583,17 @@
         return config.priority === 'high' ? 'high' : 'balanced';
     }
 
+    function updateDistributionPanelTitle() {
+        const label = config.priority === 'high' ? 'Hohe Kategorien zuerst' : 'Ausgeglichen';
+        $('#mspDistributionSummary').text(`· ${label}`);
+    }
+
     function setDistribution(value) {
         if (!['balanced', 'high'].includes(value)) return;
         config.priority = value;
         $(`input[name="mspPriority"][value="${value}"]`).prop('checked', true);
         saveConfig();
+        updateDistributionPanelTitle();
         updateSmartWarning();
         clearPreview();
     }
@@ -2946,7 +2961,7 @@
         });
 
         $('#mspQuickSave').on('click', function () {
-            // v1.3.5: sichtbare Werte vor dem Speichern explizit übernehmen,
+            // v1.3.6: sichtbare Werte vor dem Speichern explizit übernehmen,
             // damit insbesondere frei umbenannte Buttonnamen sicher erhalten bleiben.
             draftButtons.forEach((item, index) => {
                 const label = String($(`.msp-q-label[data-index="${index}"]`).val() || '').trim();
@@ -3046,7 +3061,7 @@
 
     function prepareCollapsiblePanels() {
         const defaultCollapsed = new Set(['mspTroopsPanel','mspCategoriesPanel','mspVillagesPanel','mspAnalysisPanel']);
-        const alwaysOpen = new Set(['mspDistributionPanel','mspTimePanel','mspCalculatePanel']);
+        const alwaysOpen = new Set(['mspTimePanel','mspCalculatePanel']);
 
         $(`#${APP.id} .msp-panel`).each(function(index) {
             const panel=$(this), title=panel.children('.msp-panel-title').first(), content=panel.children('.msp-panel-content').first();
@@ -4644,7 +4659,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
 
     /* =========================================================
-       Mass Scavenge+ Automate – Autopilot v1.3.5
+       Mass Scavenge+ Automate – Autopilot v1.3.6
        - Simulation und echter Autopilot nutzen dieselbe getestete Planungslogik
        - nutzt automatisch alle freien/freigeschalteten Kategorien
        - jeder einzelne Auftrag braucht mindestens 10 Bauernhofplätze
@@ -5389,7 +5404,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
             }
 
             if (!squadRequests.length) {
-                autoLog(`Keine neuen Sammelaufträge möglich · ${freeTotal} freie Kategorie(n) geprüft.`);
+                autoLog(`Keine freien Kategorien – aktuell nichts zu starten · ${freeTotal} freie Kategorie(n) geprüft.`);
             } else {
                 const now = Date.now();
                 let earliestReturn = Infinity;
@@ -5425,8 +5440,10 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
             }
 
             const occupied = AUTO.busy.size;
-            const occupiedLabel = AUTO.mode === 'live' ? 'optimistisch/Server unterwegs' : 'simuliert unterwegs';
-            autoLog(`Status · Dörfer ${villages.length} · frei geprüft ${freeTotal} · geplant ${plannedTotal} · gebündelt ${bundledVillages} · ${occupiedLabel} ${occupied}`);
+            const occupiedLabel = AUTO.mode === 'live'
+                ? `unterwegs lokal/server: ${occupied}/${occupied}`
+                : `simuliert unterwegs: ${occupied}`;
+            autoLog(`Status · Dörfer ${villages.length} · frei geprüft ${freeTotal} · geplant ${plannedTotal} · gebündelt ${bundledVillages} · ${occupiedLabel}`);
             autoUpdateStatus();
             autoSchedule(autoNextDelay());
         } catch (error) {
@@ -5612,6 +5629,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
         $('#mspVillageSummary').html('<span class="msp-village-chip">Automate lädt die Dörfer bei jedem Zyklus frisch. Die optionale Dorfwahl bleibt erhalten.</span>');
         $('#mspStatusCategories').text('Kategorien: automatisch');
+        updateDistributionPanelTitle();
     }
 
 
@@ -5749,7 +5767,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         $('#mspAutoStopQuickClose,#mspAutoStopQuickCancel').on('click', () => modal.remove());
 
         $('#mspAutoStopQuickSave').on('click', function () {
-            // v1.3.5: aktuelle Eingabefelder vor dem Speichern vollständig übernehmen.
+            // v1.3.6: aktuelle Eingabefelder vor dem Speichern vollständig übernehmen.
             draft.forEach((item, index) => {
                 const label = String($(`.msp-auto-stop-q-label[data-index="${index}"]`).val() || '').trim();
                 const type = String($(`.msp-auto-stop-q-type[data-index="${index}"]`).val() || item.type || 'hours');
