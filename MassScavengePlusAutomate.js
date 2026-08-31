@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.2
+// MassScavengePlusAutomate v1.3.3
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.2',
+        version: '1.3.3',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -176,6 +176,14 @@
                 { label: 'Morgen 09:00', type: 'tomorrow', value: '09:00', distribution: 'balanced' },
                 { label: 'Nächster 22:30', type: 'next', value: '22:30', distribution: 'any' }
             ],
+            stopQuickButtons: [
+                { label: '+2h', type: 'hours', value: '2' },
+                { label: '+4h', type: 'hours', value: '4' },
+                { label: '+6h', type: 'hours', value: '6' },
+                { label: 'Heute 22:30', type: 'today', value: '22:30' },
+                { label: 'Heute 23:00', type: 'today', value: '23:00' },
+                { label: 'Morgen 07:00', type: 'tomorrow', value: '07:00' }
+            ],
             returnTime: {
                 off: addHoursParts(4),
                 def: addHoursParts(3)
@@ -286,6 +294,30 @@
         if (!result.quickButtons.length) {
             result.quickButtons = defaults.map(item => ({ ...item }));
         }
+
+        const stopDefaults = base.stopQuickButtons;
+        result.stopQuickButtons = Array.isArray(raw?.stopQuickButtons)
+            ? raw.stopQuickButtons.slice(0, 12).map((item, index) => {
+                const fallback = stopDefaults[index] || stopDefaults[0];
+                const type = validQuickTypes.has(item?.type) ? item.type : fallback.type;
+                let value = String(item?.value ?? fallback.value);
+                if (type === 'hours') {
+                    const hours = Number(value);
+                    value = Number.isFinite(hours) && hours > 0 ? String(hours) : String(fallback.value);
+                } else if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) {
+                    value = String(fallback.value);
+                }
+                return {
+                    label: String(item?.label || fallback.label).slice(0, 24),
+                    type,
+                    value
+                };
+            })
+            : stopDefaults.map(item => ({ ...item }));
+        if (!result.stopQuickButtons.length) {
+            result.stopQuickButtons = stopDefaults.map(item => ({ ...item }));
+        }
+
         result.activeProfile = typeof raw?.activeProfile === 'string' ? raw.activeProfile : 'Standard';
 
         if (!result.profiles[result.activeProfile]) {
@@ -1537,6 +1569,20 @@
     #${APP.id} .msp-auto-stop-quick { justify-content:flex-start; }
 }
 
+
+/* v1.3.3 – personalisierbare Autopilot-Schnellbuttons */
+#${APP.id} .msp-auto-stop-quick-row { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:5px; }
+#${APP.id} #mspAutoStopQuickButtons { display:flex; flex-wrap:wrap; gap:4px; justify-content:flex-end; }
+#${APP.id} #mspAutoStopQuickSettingsBtn { flex:0 0 auto; }
+.msp-auto-stop-quick-grid { grid-template-columns:46px minmax(110px,1fr) 145px 110px 34px !important; }
+@media(max-width:760px){
+ #${APP.id} .msp-auto-stop-quick-row { justify-content:flex-start; }
+ #${APP.id} #mspAutoStopQuickButtons { justify-content:flex-start; }
+ .msp-auto-stop-quick-grid { grid-template-columns:24px 1fr !important; }
+ .msp-auto-stop-quick-grid .msp-auto-stop-q-type,
+ .msp-auto-stop-quick-grid .msp-auto-stop-q-value { grid-column:2; }
+}
+
 `;
 
         $('<style>', { id: APP.styleId }).text(css).appendTo(document.head);
@@ -1822,13 +1868,9 @@
                             <input id="mspAutoStopDate" type="date">
                             <input id="mspAutoStopTime" type="time">
                         </div>
-                        <div class="msp-auto-stop-quick" aria-label="Schnellauswahl Autopilot-Ende">
-                            <button type="button" class="msp-btn msp-btn-secondary msp-auto-stop-preset" data-stop-type="hours" data-stop-value="2">+2h</button>
-                            <button type="button" class="msp-btn msp-btn-secondary msp-auto-stop-preset" data-stop-type="hours" data-stop-value="4">+4h</button>
-                            <button type="button" class="msp-btn msp-btn-secondary msp-auto-stop-preset" data-stop-type="hours" data-stop-value="6">+6h</button>
-                            <button type="button" class="msp-btn msp-btn-secondary msp-auto-stop-preset" data-stop-type="today" data-stop-value="22:30">Heute 22:30</button>
-                            <button type="button" class="msp-btn msp-btn-secondary msp-auto-stop-preset" data-stop-type="today" data-stop-value="23:00">Heute 23:00</button>
-                            <button type="button" class="msp-btn msp-btn-secondary msp-auto-stop-preset" data-stop-type="tomorrow" data-stop-value="07:00">Morgen 07:00</button>
+                        <div class="msp-auto-stop-quick-row">
+                            <div class="msp-auto-stop-quick" id="mspAutoStopQuickButtons" aria-label="Schnellauswahl Autopilot-Ende"></div>
+                            <button type="button" class="msp-btn msp-btn-secondary" id="mspAutoStopQuickSettingsBtn">⚙ Personalisieren</button>
                         </div>
                     </div>
                 </div>
@@ -4533,7 +4575,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
 
     /* =========================================================
-       Mass Scavenge+ Automate – Autopilot v1.3.2
+       Mass Scavenge+ Automate – Autopilot v1.3.3
        - Simulation und echter Autopilot nutzen dieselbe getestete Planungslogik
        - nutzt automatisch alle freien/freigeschalteten Kategorien
        - jeder einzelne Auftrag braucht mindestens 10 Bauernhofplätze
@@ -5503,6 +5545,164 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         $('#mspStatusCategories').text('Kategorien: automatisch');
     }
 
+
+    function renderAutoStopQuickButtons() {
+        const box = $('#mspAutoStopQuickButtons');
+        if (!box.length) return;
+        box.empty();
+
+        (config.stopQuickButtons || []).forEach((item, index) => {
+            box.append($('<button>', {
+                type: 'button',
+                class: 'msp-btn msp-btn-secondary msp-auto-stop-preset',
+                text: item.label,
+                'data-index': index,
+                title: 'Autopilot-Endzeit setzen'
+            }));
+        });
+    }
+
+    function openAutoStopQuickSettingsModal() {
+        $('#mspAutoStopQuickModal').remove();
+        let draft = (config.stopQuickButtons || []).map(item => ({ ...item }));
+
+        const renderRows = () => {
+            const grid = $('#mspAutoStopQuickGrid');
+            if (!grid.length) return;
+
+            const rows = draft.map((item, index) => `
+                <div class="msp-q-order" style="display:flex;gap:2px;align-items:center;justify-content:center;">
+                    <button type="button" class="msp-auto-stop-q-up" data-index="${index}" title="Nach oben" ${index === 0 ? 'disabled' : ''}>↑</button>
+                    <button type="button" class="msp-auto-stop-q-down" data-index="${index}" title="Nach unten" ${index === draft.length - 1 ? 'disabled' : ''}>↓</button>
+                </div>
+                <input type="text" class="msp-auto-stop-q-label" data-index="${index}" maxlength="24" value="${escapeHtml(item.label)}">
+                <select class="msp-auto-stop-q-type" data-index="${index}">
+                    <option value="hours" ${item.type === 'hours' ? 'selected' : ''}>+X Stunden</option>
+                    <option value="today" ${item.type === 'today' ? 'selected' : ''}>Heute um</option>
+                    <option value="tomorrow" ${item.type === 'tomorrow' ? 'selected' : ''}>Morgen um</option>
+                    <option value="next" ${item.type === 'next' ? 'selected' : ''}>Nächster Zeitpunkt</option>
+                </select>
+                <input type="${item.type === 'hours' ? 'number' : 'time'}"
+                    class="msp-auto-stop-q-value" data-index="${index}"
+                    ${item.type === 'hours' ? 'min="0.1" step="0.1"' : ''}
+                    value="${escapeHtml(String(item.value))}">
+                <button type="button" class="msp-auto-stop-q-delete" data-index="${index}" title="Button entfernen">×</button>
+            `).join('');
+
+            grid.html(`
+                <div class="msp-quick-settings-head">↕</div>
+                <div class="msp-quick-settings-head">Anzeige</div>
+                <div class="msp-quick-settings-head">Logik</div>
+                <div class="msp-quick-settings-head">Wert</div>
+                <div></div>
+                ${rows}
+            `);
+        };
+
+        const modal = $(`
+            <div id="mspAutoStopQuickModal" class="msp-quick-modal-overlay">
+                <div class="msp-modal-box" style="max-width:620px;">
+                    <div class="msp-modal-head">
+                        <span>Autopilot-Schnellbuttons einstellen</span>
+                        <button class="msp-btn msp-btn-danger msp-btn-icon" id="mspAutoStopQuickClose">✕</button>
+                    </div>
+                    <div class="msp-modal-body">
+                        <p style="margin-top:0;font-size:11px;">
+                            Diese Buttons ändern <b>nur das Autopilot-Ende</b> und sind unabhängig von den normalen Laufzeit-/Rückkehr-Schnellbuttons.
+                        </p>
+                        <div class="msp-quick-settings-grid msp-auto-stop-quick-grid" id="mspAutoStopQuickGrid"></div>
+                        <div class="msp-q-add-row">
+                            <button class="msp-btn msp-btn-secondary" id="mspAutoStopQuickAdd" type="button">+ Button hinzufügen</button>
+                            <button class="msp-btn msp-btn-secondary" id="mspAutoStopQuickDefaults" type="button">Standard</button>
+                        </div>
+                    </div>
+                    <div class="msp-modal-foot">
+                        <button class="msp-btn msp-btn-secondary" id="mspAutoStopQuickCancel" type="button">Abbrechen</button>
+                        <button class="msp-btn msp-btn-primary" id="mspAutoStopQuickSave" type="button">Speichern</button>
+                    </div>
+                </div>
+            </div>
+        `).appendTo('body');
+
+        const readRow = index => {
+            if (!draft[index]) return;
+            const type = String($(`.msp-auto-stop-q-type[data-index="${index}"]`).val() || 'hours');
+            draft[index] = {
+                label: String($(`.msp-auto-stop-q-label[data-index="${index}"]`).val() || '').trim(),
+                type,
+                value: String($(`.msp-auto-stop-q-value[data-index="${index}"]`).val() || '')
+            };
+        };
+
+        renderRows();
+
+        modal.on('input change', '.msp-auto-stop-q-label,.msp-auto-stop-q-value', function () {
+            readRow(Number($(this).data('index')));
+        });
+
+        modal.on('change', '.msp-auto-stop-q-type', function () {
+            const index = Number($(this).data('index'));
+            readRow(index);
+            if (draft[index]) {
+                draft[index].value = draft[index].type === 'hours' ? '2' : '22:30';
+                if (!draft[index].label) draft[index].label = draft[index].type === 'hours' ? '+2h' : '22:30';
+            }
+            renderRows();
+        });
+
+        modal.on('click', '.msp-auto-stop-q-up,.msp-auto-stop-q-down', function () {
+            const index = Number($(this).data('index'));
+            if (!Number.isInteger(index) || !draft[index]) return;
+            const target = index + ($(this).hasClass('msp-auto-stop-q-up') ? -1 : 1);
+            if (target < 0 || target >= draft.length) return;
+            [draft[index], draft[target]] = [draft[target], draft[index]];
+            renderRows();
+        });
+
+        modal.on('click', '.msp-auto-stop-q-delete', function () {
+            const index = Number($(this).data('index'));
+            if (!Number.isInteger(index) || !draft[index]) return;
+            draft.splice(index, 1);
+            renderRows();
+        });
+
+        $('#mspAutoStopQuickAdd').on('click', function () {
+            if (draft.length >= 12) return notifyError('Maximal 12 Autopilot-Schnellbuttons sind möglich.');
+            draft.push({ label: '+2h', type: 'hours', value: '2' });
+            renderRows();
+        });
+
+        $('#mspAutoStopQuickDefaults').on('click', function () {
+            draft = defaultConfig().stopQuickButtons.map(item => ({ ...item }));
+            renderRows();
+        });
+
+        $('#mspAutoStopQuickClose,#mspAutoStopQuickCancel').on('click', () => modal.remove());
+
+        $('#mspAutoStopQuickSave').on('click', function () {
+            draft.forEach((_, i) => readRow(i));
+
+            for (const item of draft) {
+                if (!item.label) return notifyError('Bitte jedem Autopilot-Schnellbutton eine Bezeichnung geben.');
+                if (item.type === 'hours') {
+                    if (!(Number(item.value) > 0)) return notifyError('Bei „+X Stunden“ muss der Wert größer als 0 sein.');
+                } else if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(item.value))) {
+                    return notifyError('Bitte eine gültige Uhrzeit im Format HH:MM verwenden.');
+                }
+            }
+
+            config.stopQuickButtons = draft.map(item => ({
+                label: String(item.label).slice(0, 24),
+                type: item.type,
+                value: String(item.value)
+            }));
+            saveConfig();
+            renderAutoStopQuickButtons();
+            modal.remove();
+            notifySuccess('Autopilot-Schnellbuttons gespeichert.');
+        });
+    }
+
     function applyAutoStopPreset(type, value) {
         serverDateMs = parseServerDate();
         const now = new Date(serverDateMs);
@@ -5520,6 +5720,8 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
             if (type === 'tomorrow') {
                 target.setDate(target.getDate() + 1);
+            } else if (type === 'next') {
+                if (target.getTime() <= serverDateMs) target.setDate(target.getDate() + 1);
             } else if (type === 'today' && target.getTime() <= serverDateMs) {
                 notifyError(`„Heute ${value}“ liegt bereits in der Vergangenheit.`);
                 return;
@@ -5662,9 +5864,16 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
             }
         });
 
-        $('.msp-auto-stop-preset').on('click', function () {
-            applyAutoStopPreset(String($(this).data('stop-type') || ''), String($(this).data('stop-value') || ''));
+        renderAutoStopQuickButtons();
+
+        $('#mspAutoStopQuickButtons').on('click', '.msp-auto-stop-preset', function () {
+            const index = Number($(this).data('index'));
+            const item = config.stopQuickButtons?.[index];
+            if (!item) return;
+            applyAutoStopPreset(item.type, item.value);
         });
+
+        $('#mspAutoStopQuickSettingsBtn').on('click', openAutoStopQuickSettingsModal);
 
         $('#mspAutoStopDate,#mspAutoStopTime').on('input change', function () {
             localStorage.setItem('msp_automate_stop_date', String($('#mspAutoStopDate').val() || ''));
