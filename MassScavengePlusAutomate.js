@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.8
+// MassScavengePlusAutomate v1.3.9
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.8',
+        version: '1.3.9',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -1584,25 +1584,40 @@
 }
 
 
-/* v1.3.8 – kompakter UI-Polish */
+/* v1.3.9 – kompakter UI-Polish */
 #${APP.id} .msp-time-block {
-    padding:8px;
+    padding:6px;
     border:1px solid #d3bd88;
     border-radius:5px;
     background:#fffdf6;
 }
-#${APP.id} .msp-time-block + .msp-time-block { margin-top:9px; }
+#${APP.id} .msp-time-block + .msp-time-block { margin-top:6px; }
 #${APP.id} .msp-time-block-title {
-    display:flex; align-items:center; gap:5px; margin-bottom:7px;
+    display:flex; align-items:center; gap:5px; margin-bottom:4px;
     font-size:12px; font-weight:700; color:#5d4719;
 }
+#${APP.id} .msp-auto-stop-compact-head {
+    display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;
+}
+#${APP.id} .msp-auto-stop-compact-head .msp-time-block-title { margin-bottom:0; }
+#${APP.id} .msp-quick-inline-main {
+    display:flex; align-items:center; gap:6px; flex:1 1 auto; flex-wrap:wrap;
+}
+#${APP.id} .msp-quick-inline-main .msp-quick-purpose-title {
+    flex:0 0 auto; white-space:nowrap;
+}
+#${APP.id} .msp-quick-inline-main #mspQuickButtons,
+#${APP.id} .msp-quick-inline-main #mspAutoStopQuickButtons {
+    display:flex; align-items:center; flex-wrap:wrap; gap:5px;
+}
+
 #${APP.id} .msp-info-hint {
     display:inline-flex; align-items:center; justify-content:center;
     width:16px; height:16px; border:1px solid #b99a57; border-radius:50%;
     color:#765d26; background:#fffaf0; font-size:10px; font-weight:700;
     cursor:help; flex:0 0 auto;
 }
-#${APP.id} .msp-quick-unified { margin-top:8px; }
+#${APP.id} .msp-quick-unified { margin-top:5px; }
 #${APP.id} .msp-quick-unified-head {
     display:flex; align-items:center; justify-content:space-between; gap:8px;
     margin-bottom:5px;
@@ -1624,7 +1639,7 @@
     border-color:#d77b70; background:#fff4f2;
     box-shadow:inset 0 0 0 1px rgba(156,31,22,.08);
 }
-/* v1.3.8 – Autopilot-Schnellwahl links und einklappbare Verteilung */
+/* v1.3.9 – Autopilot-Schnellwahl links und einklappbare Verteilung */
 #${APP.id} #mspAutoStopQuickButtons {
     flex:1 1 320px !important;
     justify-content:flex-start !important;
@@ -1926,24 +1941,30 @@
                     </div>
 
                     <div class="msp-quick-unified">
-                        <div class="msp-quick-unified-head"><span class="msp-quick-purpose-title">⏱ Schnellwahl Raubzüge</span><span class="msp-info-hint" title="Setzt Laufzeit oder Rückkehr direkt für Off- und Def-Dörfer.">ⓘ</span></div>
                         <div class="msp-quick-unified-row">
-                            <span id="mspQuickButtons"></span>
+                            <div class="msp-quick-inline-main">
+                                <span class="msp-quick-purpose-title">⏱ Schnellwahl Raubzüge</span>
+                                <span id="mspQuickButtons"></span>
+                                <span class="msp-info-hint" title="Setzt Laufzeit oder Rückkehr direkt für Off- und Def-Dörfer.">ⓘ</span>
+                            </div>
                             <button class="msp-btn msp-btn-secondary msp-quick-personalize" id="mspQuickSettingsBtn" type="button" title="Schnellbuttons einstellen, umbenennen und sortieren">⚙ Personalisieren</button>
                         </div>
-                        <div class="msp-quick-box-foot" id="mspQuickHint">Setzt Off und Def gemeinsam.</div>
                     </div>
                 </div>
 
                 <div class="msp-time-block">
-                    <div class="msp-time-block-title">🔴 Autopilot-Ende <span class="msp-info-hint" title="Bis zu diesem Zeitpunkt darf der Autopilot neue Aufträge starten. Laufende Raubzüge kehren normal zurück.">ⓘ</span></div>
-                    <div class="msp-auto-time-control-inputs">
-                        <input id="mspAutoStopDate" type="date"><input id="mspAutoStopTime" type="time">
+                    <div class="msp-auto-stop-compact-head">
+                        <div class="msp-time-block-title">🔴 Autopilot-Ende <span class="msp-info-hint" title="Bis zu diesem Zeitpunkt darf der Autopilot neue Aufträge starten. Laufende Raubzüge kehren normal zurück.">ⓘ</span></div>
+                        <div class="msp-auto-time-control-inputs">
+                            <input id="mspAutoStopDate" type="date"><input id="mspAutoStopTime" type="time">
+                        </div>
                     </div>
                     <div class="msp-quick-unified">
-                        <div class="msp-quick-unified-head"><span class="msp-quick-purpose-title">🛑 Schnellwahl Autopilot-Ende</span></div>
                         <div class="msp-quick-unified-row">
-                            <div id="mspAutoStopQuickButtons" aria-label="Schnellwahl Autopilot-Ende"></div>
+                            <div class="msp-quick-inline-main">
+                                <span class="msp-quick-purpose-title">🛑 Schnellwahl Autopilot-Ende</span>
+                                <div id="mspAutoStopQuickButtons" aria-label="Schnellwahl Autopilot-Ende"></div>
+                            </div>
                             <button type="button" class="msp-btn msp-btn-secondary msp-quick-personalize" id="mspAutoStopQuickSettingsBtn" title="Schnellbuttons einstellen, umbenennen und sortieren">⚙ Personalisieren</button>
                         </div>
                     </div>
@@ -2974,7 +2995,7 @@
         });
 
         $('#mspQuickSave').on('click', function () {
-            // v1.3.8: sichtbare Werte vor dem Speichern explizit übernehmen,
+            // v1.3.9: sichtbare Werte vor dem Speichern explizit übernehmen,
             // damit insbesondere frei umbenannte Buttonnamen sicher erhalten bleiben.
             draftButtons.forEach((item, index) => {
                 const label = String($(`.msp-q-label[data-index="${index}"]`).val() || '').trim();
@@ -4713,7 +4734,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
 
     /* =========================================================
-       Mass Scavenge+ Automate – Autopilot v1.3.8
+       Mass Scavenge+ Automate – Autopilot v1.3.9
        - Simulation und echter Autopilot nutzen dieselbe getestete Planungslogik
        - nutzt automatisch alle freien/freigeschalteten Kategorien
        - jeder einzelne Auftrag braucht mindestens 10 Bauernhofplätze
@@ -5821,7 +5842,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         $('#mspAutoStopQuickClose,#mspAutoStopQuickCancel').on('click', () => modal.remove());
 
         $('#mspAutoStopQuickSave').on('click', function () {
-            // v1.3.8: aktuelle Eingabefelder vor dem Speichern vollständig übernehmen.
+            // v1.3.9: aktuelle Eingabefelder vor dem Speichern vollständig übernehmen.
             draft.forEach((item, index) => {
                 const label = String($(`.msp-auto-stop-q-label[data-index="${index}"]`).val() || '').trim();
                 const type = String($(`.msp-auto-stop-q-type[data-index="${index}"]`).val() || item.type || 'hours');
