@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.0
+// MassScavengePlusAutomate v1.3.1
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.0',
+        version: '1.3.1',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -1503,6 +1503,24 @@
     #${APP.id} #mspAutoPanel .msp-auto-stop-stat { flex:1 1 100%; }
 }
 
+
+/* v1.3.1 – gebündelte Zeitsteuerung */
+#${APP.id} .msp-auto-time-control {
+    margin:8px 8px 6px; padding:8px 10px;
+    border:1px solid #b99a57; border-radius:5px; background:#fff7df;
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+}
+#${APP.id} .msp-auto-time-control-head { display:flex; flex-direction:column; gap:2px; }
+#${APP.id} .msp-auto-time-control-head span { font-size:10px; opacity:.72; }
+#${APP.id} .msp-auto-time-control-inputs { display:flex; gap:5px; flex:0 0 auto; }
+#${APP.id} .msp-auto-time-control-inputs input[type="date"] { width:128px; }
+#${APP.id} .msp-auto-time-control-inputs input[type="time"] { width:76px; }
+#${APP.id} #mspAutoPanel .msp-auto-stop-summary { min-width:145px; }
+@media(max-width:760px){
+ #${APP.id} .msp-auto-time-control { align-items:stretch; flex-direction:column; }
+ #${APP.id} .msp-auto-time-control-inputs input[type="date"] { flex:1 1 auto; width:auto; }
+}
+
 `;
 
         $('<style>', { id: APP.styleId }).text(css).appendTo(document.head);
@@ -1775,6 +1793,17 @@
                             <input type="number" id="mspDefRuntime" min="0.01" step="0.05" style="width:105px;">
                             <span>Stunden</span>
                         </div>
+                    </div>
+                </div>
+
+                <div class="msp-auto-time-control">
+                    <div class="msp-auto-time-control-head">
+                        <b>🛑 Autopilot: neue Raubzüge starten bis</b>
+                        <span>Danach werden keine neuen Aufträge mehr gestartet. Laufende Raubzüge dürfen normal zurückkehren.</span>
+                    </div>
+                    <div class="msp-auto-time-control-inputs">
+                        <input id="mspAutoStopDate" type="date">
+                        <input id="mspAutoStopTime" type="time">
                     </div>
                 </div>
 
@@ -4478,7 +4507,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
 
     /* =========================================================
-       Mass Scavenge+ Automate – Autopilot v1.3.0
+       Mass Scavenge+ Automate – Autopilot v1.3.1
        - Simulation und echter Autopilot nutzen dieselbe getestete Planungslogik
        - nutzt automatisch alle freien/freigeschalteten Kategorien
        - jeder einzelne Auftrag braucht mindestens 10 Bauernhofplätze
@@ -5278,57 +5307,6 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
     }
 
 
-    function showLiveAutopilotConfirm(onConfirm) {
-        $('#mspAutoConfirmOverlay').remove();
-
-        $('body').append(`
-            <div id="mspAutoConfirmOverlay" style="
-                position:fixed;inset:0;z-index:999999;
-                background:rgba(0,0,0,.58);
-                display:flex;align-items:center;justify-content:center;
-                padding:16px;
-            ">
-                <div style="
-                    width:min(92vw,460px);
-                    background:#f4e4bc;
-                    border:2px solid #7d510f;
-                    border-radius:10px;
-                    box-shadow:0 8px 28px rgba(0,0,0,.45);
-                    padding:16px;color:#2b1b08;
-                    font-family:Arial,sans-serif;
-                ">
-                    <div style="font-size:20px;font-weight:700;margin-bottom:10px;">
-                        ⚠️ Echten Autopilot starten?
-                    </div>
-                    <div style="font-size:14px;line-height:1.45;margin-bottom:14px;">
-                        MassScavenge+ wird Sammelaufträge <b>wirklich absenden</b>
-                        und nach ihrer Rückkehr automatisch neu planen.<br><br>
-                        Direkt vor jedem Versand werden die Serverdaten erneut geprüft.
-                        Bei einer unklaren Serverantwort stoppt der Autopilot.<br><br>
-                        <b>Die jetzt gewählte Zeit ist einmalig:</b> Sobald die feste
-                        Deadline erreicht ist, beendet sich der Autopilot vollständig
-                        und startet am Folgetag nicht automatisch neu.
-                    </div>
-                    <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">
-                        <button type="button" id="mspAutoConfirmCancel" class="btn">Abbrechen</button>
-                        <button type="button" id="mspAutoConfirmStart" class="btn btn-confirm-yes" style="font-weight:700;">
-                            ▶ Autopilot starten
-                        </button>
-                    </div>
-                </div>
-            </div>
-        `);
-
-        $('#mspAutoConfirmCancel').off('click.mspAutoConfirm').on('click.mspAutoConfirm', function () {
-            $('#mspAutoConfirmOverlay').remove();
-            autoLog('Echter Autopilot wurde vor dem Start abgebrochen.');
-        });
-
-        $('#mspAutoConfirmStart').off('click.mspAutoConfirm').on('click.mspAutoConfirm', function () {
-            $('#mspAutoConfirmOverlay').remove();
-            if (typeof onConfirm === 'function') onConfirm();
-        });
-    }
 
     function autoStart(mode = 'sim') {
         try {
@@ -5419,7 +5397,9 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                     return;
                 }
 
-                showLiveAutopilotConfirm(beginRun);
+                // Kein zusätzlicher Bestätigungsdialog mehr: Klick auf „Autopilot starten“
+                // startet nach den normalen Validierungs-/Laufzeitprüfungen direkt.
+                beginRun();
                 return;
             }
 
@@ -5490,6 +5470,9 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         $('#mspTimePanel > .msp-panel-title').first().contents().first()[0].textContent = '3. Laufzeit / Rückkehr ';
         $('#mspVillagesPanel > .msp-panel-title').first().contents().first()[0].textContent = '4. Dörfer ';
 
+        // Zeitsteuerung bewusst nach oben: Abschnitt 3 steht vor Abschnitt 1.
+        $('#mspTimePanel').insertBefore($('#mspTroopsPanel'));
+
         $('#mspVillageSummary').html('<span class="msp-village-chip">Automate lädt die Dörfer bei jedem Zyklus frisch. Die optionale Dorfwahl bleibt erhalten.</span>');
         $('#mspStatusCategories').text('Kategorien: automatisch');
     }
@@ -5498,8 +5481,12 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         serverDateMs = parseServerDate();
         const stopAt = autoReadStopDeadlineInput();
         if (Number.isFinite(stopAt) && stopAt > serverDateMs) {
+            const d = new Date(stopAt);
+            const stopLabel = `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+            $('#mspAutoStopSummary').text(`🛑 Stop ${stopLabel}`);
             $('#mspAutoDeadlineRemaining').text(`noch ${safetyRuntimeLabel((stopAt - serverDateMs) / 3600000)}`);
         } else {
+            $('#mspAutoStopSummary').text('🛑 Stop —');
             $('#mspAutoDeadlineRemaining').text('Ende wählen');
         }
     }
@@ -5563,13 +5550,9 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                             <small><input id="mspAutoBundleMinutes" type="number" min="0" max="60" step="1"
                                 value="${Math.round(AUTO.bundleWindowMs / 60000)}"> Min.</small>
                         </div>
-                        <div class="msp-auto-stat msp-auto-stop-stat">
-                            <b>🛑 Autopilot bis</b>
-                            <small>
-                                <input id="mspAutoStopDate" type="date">
-                                <input id="mspAutoStopTime" type="time">
-                            </small>
-                            <small id="mspAutoDeadlineRemaining">—</small>
+                        <div class="msp-auto-stat msp-auto-stop-summary">
+                            <b id="mspAutoStopSummary">🛑 Stop —</b>
+                            <small id="mspAutoDeadlineRemaining">Ende wählen</small>
                         </div>
                     </div>
 
