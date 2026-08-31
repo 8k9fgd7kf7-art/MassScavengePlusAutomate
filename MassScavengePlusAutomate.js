@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.2.5
+// MassScavengePlusAutomate v1.3.0
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.2.5',
+        version: '1.3.0',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -1471,6 +1471,38 @@
     text-align:center;
 }
 
+
+/* v1.3.0 – getrennte Autopilot-Endzeit und harte Raubzug-Laufzeit */
+#${APP.id} .msp-max-raid-runtime {
+    margin-left:auto;
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+    padding:3px 7px;
+    border:1px solid #c9ad6c;
+    border-radius:4px;
+    background:#fff7df;
+}
+#${APP.id} .msp-max-raid-runtime input {
+    width:64px;
+}
+#${APP.id} #mspAutoPanel .msp-auto-stop-stat {
+    min-width:245px;
+    flex:1 1 245px;
+}
+#${APP.id} #mspAutoPanel .msp-auto-stop-stat small:first-of-type {
+    display:flex;
+    gap:4px;
+    justify-content:center;
+    align-items:center;
+}
+#${APP.id} #mspAutoPanel .msp-auto-stop-stat input[type="date"] { width:128px; }
+#${APP.id} #mspAutoPanel .msp-auto-stop-stat input[type="time"] { width:76px; }
+@media(max-width:760px){
+    #${APP.id} .msp-max-raid-runtime { margin-left:0; flex:1 1 100%; }
+    #${APP.id} #mspAutoPanel .msp-auto-stop-stat { flex:1 1 100%; }
+}
+
 `;
 
         $('<style>', { id: APP.styleId }).text(css).appendTo(document.head);
@@ -1708,6 +1740,11 @@
                 <div class="msp-time-mode-row">
                     <label><input type="radio" name="mspTimeMode" value="return"> Rückkehrzeit</label>
                     <label><input type="radio" name="mspTimeMode" value="runtime"> Laufzeit in Stunden</label>
+                    <label class="msp-max-raid-runtime" title="Harte Obergrenze für jeden einzelnen neu gestarteten Sammelauftrag.">
+                        <b>Max. je Raubzug:</b>
+                        <input id="mspAutoMaxRaidHours" type="number" min="0.1" max="48" step="0.25"
+                            value="${escapeHtml(String(AUTO.maxRaidHours))}"> Std.
+                    </label>
                 </div>
 
                 <div class="msp-time-compact">
@@ -4441,7 +4478,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
 
     /* =========================================================
-       Mass Scavenge+ Automate – Autopilot v1.2.5
+       Mass Scavenge+ Automate – Autopilot v1.3.0
        - Simulation und echter Autopilot nutzen dieselbe getestete Planungslogik
        - nutzt automatisch alle freien/freigeschalteten Kategorien
        - jeder einzelne Auftrag braucht mindestens 10 Bauernhofplätze
@@ -4474,7 +4511,14 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         deadlineOffAt: 0,
         deadlineDefAt: 0,
         stopDeadlineAt: 0,
-        deadlineLabel: ''
+        deadlineLabel: '',
+        planMode: 'return',
+        runtimeOffHours: 4,
+        runtimeDefHours: 4,
+        maxRaidHours: Math.max(0.1, Number(localStorage.getItem('msp_automate_max_raid_hours') || 4)),
+        runtimeSafetyMs: 30000,
+        runtimeClamped: 0,
+        runtimeRejected: 0
     };
 
 
@@ -4550,19 +4594,143 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         }, 0);
     }
 
-    function autoActualRuntimeMs(req, village) {
-        const counts = req?.candidate_squad?.unit_counts || {};
+    function autoRuntimeMsForCounts(counts, village, category) {
+        counts = counts || {};
         const carryFactor = Number(village?.unit_carry_factor || 1) || 1;
         let rawCarry = 0;
         for (const [unit, amount] of Object.entries(counts)) {
             rawCarry += (Number(amount) || 0) * (UNIT_META[unit]?.carry || 0) * carryFactor;
         }
-        const category = Number(req?.option_id || 0);
         const categoryFactor = Number(village?.options?.[category]?.loot_factor || AUTO_CATEGORY_FACTOR[category] || 0);
         const effectiveHaul = rawCarry * categoryFactor;
         if (!(effectiveHaul > 0) || !(durationFactor > 0) || !(durationExponent > 0)) return AUTO.fallbackDelayMs;
         const seconds = durationFactor * (durationInitialSeconds + Math.pow(100 * effectiveHaul * effectiveHaul, durationExponent));
         return Math.max(AUTO.minDelayMs, seconds * 1000);
+    }
+
+    function autoActualRuntimeMs(req, village) {
+        return autoRuntimeMsForCounts(
+            req?.candidate_squad?.unit_counts || {},
+            village,
+            Number(req?.option_id || 0)
+        );
+    }
+
+    function autoRequestTroopType(req) {
+        let off = 0, def = 0;
+        const counts = req?.candidate_squad?.unit_counts || {};
+        for (const [unit, amountRaw] of Object.entries(counts)) {
+            const amount = Number(amountRaw) || 0;
+            if (UNIT_META[unit]?.type === 'off') off += amount;
+            else if (UNIT_META[unit]?.type === 'def') def += amount;
+        }
+        return off > def ? 'off' : 'def';
+    }
+
+    function autoRuntimeLimitHoursForRequest(req, times) {
+        const troopType = autoRequestTroopType(req);
+        const planned = Number(times?.[troopType]);
+        const hardMax = Number(AUTO.maxRaidHours);
+        const candidates = [planned, hardMax].filter(v => Number.isFinite(v) && v > 0);
+        return candidates.length ? Math.min(...candidates) : NaN;
+    }
+
+    function autoClampRequestToRuntime(req, village, limitHours) {
+        if (!req || !village || !(limitHours > 0)) return null;
+
+        const limitMs = Math.max(
+            AUTO.minDelayMs,
+            limitHours * 3600000 - Math.min(AUTO.runtimeSafetyMs, limitHours * 3600000 * 0.02)
+        );
+        const currentMs = autoActualRuntimeMs(req, village);
+        if (currentMs <= limitMs) return { request: req, changed: false, runtimeMs: currentMs };
+
+        const original = { ...(req?.candidate_squad?.unit_counts || {}) };
+        const build = scale => {
+            const counts = {};
+            for (const [unit, amountRaw] of Object.entries(original)) {
+                const amount = Math.floor((Number(amountRaw) || 0) * scale);
+                if (amount > 0) counts[unit] = amount;
+            }
+            if (farmSpaceOfCounts(counts) < MIN_SCAVENGE_FARM_SPACE) return null;
+            const candidate = {
+                ...req,
+                candidate_squad: {
+                    ...(req.candidate_squad || {}),
+                    unit_counts: counts
+                }
+            };
+            return { candidate, runtimeMs: autoActualRuntimeMs(candidate, village) };
+        };
+
+        let low = 0, high = 1, best = null;
+        for (let i = 0; i < 28; i++) {
+            const mid = (low + high) / 2;
+            const trial = build(mid);
+            if (trial && trial.runtimeMs <= limitMs) {
+                best = trial;
+                low = mid;
+            } else {
+                high = mid;
+            }
+        }
+
+        if (!best) return null;
+        return { request: best.candidate, changed: true, runtimeMs: best.runtimeMs };
+    }
+
+    function autoEnforceRuntimeLimits(requests, premiumRequests, villages, times) {
+        const villageMap = new Map((villages || []).map(v => [String(v.village_id), v]));
+        const premiumMap = new Map((premiumRequests || []).map(r => [`${r.village_id}:${r.option_id}`, r]));
+        const kept = [];
+        const keptPremium = [];
+        let clamped = 0, rejected = 0;
+
+        for (const req of requests || []) {
+            const village = villageMap.get(String(req.village_id));
+            const limitHours = autoRuntimeLimitHoursForRequest(req, times);
+            const result = autoClampRequestToRuntime(req, village, limitHours);
+            if (!result) {
+                rejected++;
+                continue;
+            }
+            if (result.changed) clamped++;
+            kept.push(result.request);
+
+            const key = `${req.village_id}:${req.option_id}`;
+            const prem = premiumMap.get(key);
+            if (prem) {
+                keptPremium.push({
+                    ...prem,
+                    candidate_squad: {
+                        ...(prem.candidate_squad || {}),
+                        unit_counts: { ...(result.request.candidate_squad?.unit_counts || {}) }
+                    }
+                });
+            }
+        }
+
+        AUTO.runtimeClamped += clamped;
+        AUTO.runtimeRejected += rejected;
+        return { requests: kept, premiumRequests: keptPremium, clamped, rejected };
+    }
+
+    function autoFinalRuntimeGuard(requests, villages, times) {
+        const villageMap = new Map((villages || []).map(v => [String(v.village_id), v]));
+        const violations = [];
+        for (const req of requests || []) {
+            const village = villageMap.get(String(req.village_id));
+            const limitHours = autoRuntimeLimitHoursForRequest(req, times);
+            const runtimeMs = autoActualRuntimeMs(req, village);
+            if (!(limitHours > 0) || runtimeMs > limitHours * 3600000) {
+                violations.push({
+                    req,
+                    limitHours,
+                    runtimeMs
+                });
+            }
+        }
+        return violations;
     }
 
     function autoNormalizeTimestamp(value) {
@@ -4710,54 +4878,74 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
     }
 
 
+    function autoReadStopDeadlineInput() {
+        const date = String($('#mspAutoStopDate').val() || '');
+        const time = String($('#mspAutoStopTime').val() || '');
+        return parseLocalDateTime(date, time);
+    }
+
     function autoFreezeDeadlinesAtStart() {
         serverDateMs = parseServerDate();
         const mode = $('input[name="mspTimeMode"]:checked').val();
         const now = serverDateMs;
 
-        let offAt = 0;
-        let defAt = 0;
-        let label = '';
+        AUTO.planMode = mode === 'runtime' ? 'runtime' : 'return';
+        AUTO.maxRaidHours = Math.max(0.1, safeFloat($('#mspAutoMaxRaidHours').val(), AUTO.maxRaidHours, 0.1));
+        localStorage.setItem('msp_automate_max_raid_hours', String(AUTO.maxRaidHours));
 
-        if (mode === 'runtime') {
-            const offHours = safeFloat($('#mspOffRuntime').val(), NaN, 0.01);
-            const defHours = safeFloat($('#mspDefRuntime').val(), NaN, 0.01);
-            if (Number.isFinite(offHours) && offHours > 0) offAt = now + offHours * 3600000;
-            if (Number.isFinite(defHours) && defHours > 0) defAt = now + defHours * 3600000;
-            label = 'feste Laufzeit ab Start';
+        if (AUTO.planMode === 'runtime') {
+            AUTO.runtimeOffHours = safeFloat($('#mspOffRuntime').val(), NaN, 0.01);
+            AUTO.runtimeDefHours = safeFloat($('#mspDefRuntime').val(), NaN, 0.01);
+            AUTO.deadlineOffAt = 0;
+            AUTO.deadlineDefAt = 0;
+            AUTO.deadlineLabel = 'feste Maximal-Laufzeit je neuem Auftrag';
         } else {
-            offAt = parseLocalDateTime($('#mspOffDate').val(), $('#mspOffTime').val());
-            defAt = parseLocalDateTime($('#mspDefDate').val(), $('#mspDefTime').val());
-            label = 'feste Rückkehr-Deadline';
+            AUTO.deadlineOffAt = parseLocalDateTime($('#mspOffDate').val(), $('#mspOffTime').val());
+            AUTO.deadlineDefAt = parseLocalDateTime($('#mspDefDate').val(), $('#mspDefTime').val());
+            AUTO.deadlineLabel = 'feste Rückkehrgrenze der Aufträge';
         }
 
-        const valid = [offAt, defAt].filter(ts => Number.isFinite(ts) && ts > 0);
-        if (!valid.length) throw new Error('Keine gültige Autopilot-Deadline gefunden.');
-
-        AUTO.deadlineOffAt = offAt;
-        AUTO.deadlineDefAt = defAt;
-        AUTO.stopDeadlineAt = Math.max(...valid);
-        AUTO.deadlineLabel = label;
+        const stopAt = autoReadStopDeadlineInput();
+        if (!Number.isFinite(stopAt) || stopAt <= now) {
+            throw new Error('„Autopilot läuft bis“ muss in der Zukunft liegen.');
+        }
+        AUTO.stopDeadlineAt = stopAt;
+        localStorage.setItem('msp_automate_stop_date', String($('#mspAutoStopDate').val() || ''));
+        localStorage.setItem('msp_automate_stop_time', String($('#mspAutoStopTime').val() || ''));
 
         return {
-            offAt,
-            defAt,
+            offAt: AUTO.deadlineOffAt,
+            defAt: AUTO.deadlineDefAt,
             stopAt: AUTO.stopDeadlineAt,
-            mode
+            mode: AUTO.planMode,
+            maxRaidHours: AUTO.maxRaidHours
         };
     }
 
     function autoFrozenTimes() {
         serverDateMs = parseServerDate();
         const now = serverDateMs;
-        return {
-            off: Number.isFinite(AUTO.deadlineOffAt) && AUTO.deadlineOffAt > 0
+        let off, def;
+
+        if (AUTO.planMode === 'runtime') {
+            off = Number(AUTO.runtimeOffHours);
+            def = Number(AUTO.runtimeDefHours);
+        } else {
+            off = Number.isFinite(AUTO.deadlineOffAt) && AUTO.deadlineOffAt > 0
                 ? (AUTO.deadlineOffAt - now) / 3600000
-                : -1,
-            def: Number.isFinite(AUTO.deadlineDefAt) && AUTO.deadlineDefAt > 0
+                : -1;
+            def = Number.isFinite(AUTO.deadlineDefAt) && AUTO.deadlineDefAt > 0
                 ? (AUTO.deadlineDefAt - now) / 3600000
-                : -1
-        };
+                : -1;
+        }
+
+        const hardMax = Number(AUTO.maxRaidHours);
+        if (Number.isFinite(hardMax) && hardMax > 0) {
+            if (off > 0) off = Math.min(off, hardMax);
+            if (def > 0) def = Math.min(def, hardMax);
+        }
+
+        return { off, def };
     }
 
     function autoFormatDeadline(ts) {
@@ -4776,7 +4964,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
     function autoStopAtDeadline() {
         if (!AUTO.running) return;
         const when = autoFormatDeadline(AUTO.stopDeadlineAt);
-        autoLog(`🛑 Einmalige Autopilot-Deadline erreicht (${when}) · Autopilot wird vollständig beendet.`);
+        autoLog(`🛑 Autopilot-Endzeit erreicht (${when}) · Autopilot wird vollständig beendet.`);
         autoStop(true);
         $('#mspAutoState').text(`🛑 Deadline erreicht · Autopilot beendet · 🚀 ${AUTO.launched} · 🔄 ${AUTO.cycles}`);
         $('#mspAutoNext').text('Nächster Check: —');
@@ -4859,6 +5047,22 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
             decisions.set(String(village.village_id), decision);
         }
 
+        const runtimeChecked = autoEnforceRuntimeLimits(
+            squadRequests.slice(),
+            squadRequestsPremium.slice(),
+            villages,
+            times
+        );
+        squadRequests = runtimeChecked.requests.slice();
+        squadRequestsPremium = runtimeChecked.premiumRequests.slice();
+
+        if (runtimeChecked.clamped) {
+            autoLog(`  ⏱ Laufzeit-Schutz · ${runtimeChecked.clamped} Auftrag/-aufträge auf die zulässige Maximaldauer verkleinert.`);
+        }
+        if (runtimeChecked.rejected) {
+            autoLog(`  ⛔ Laufzeit-Schutz · ${runtimeChecked.rejected} Auftrag/-aufträge verworfen, weil selbst die Mindestgröße die Zeitgrenze nicht sicher einhalten konnte.`);
+        }
+
         return {
             villages,
             preview,
@@ -4934,28 +5138,21 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
             config.categories = [true,true,true,true];
             saveConfig();
 
-            // Während eines laufenden Automate-Laufs wird NICHT mehr aus den
-            // Formularfeldern neu interpretiert. Die beim Start gewählten Ziele
-            // sind absolute, einmalige Deadlines.
+            // Planungsziel und Autopilot-Ende sind getrennt:
+            // - Laufzeitmodus bleibt bei jedem Zyklus dieselbe Maximaldauer.
+            // - Rückkehrmodus zählt bis zur einmalig eingefrorenen Rückkehrgrenze herunter.
+            // Zusätzlich gilt immer die harte Maximaldauer je Raubzug.
             const times = autoFrozenTimes();
 
-            // Wenn eine Teil-Deadline bereits vorbei ist, darf diese Truppengruppe
-            // nicht mehr neu auf Reise geschickt werden. Erst wenn die letzte
-            // Teil-Deadline abläuft, beendet sich der gesamte Autopilot.
-            if (times.off <= 0 && times.def <= 0) {
-                autoStopAtDeadline();
+            if (AUTO.planMode === 'return' && times.off <= 0 && times.def <= 0) {
+                autoLog('Keine neue Planung mehr: die Rückkehrgrenze für Off und Def ist erreicht.');
+                autoSchedule(autoNextDelay());
                 return;
             }
 
             const validation = validateForm(times);
-            if (validation) {
-                // Negative Restlaufzeit einer bereits abgelaufenen Teilgruppe ist
-                // nach dem Start erwartbar. Für die andere Gruppe darf weiter geplant werden.
-                const allExpired = times.off <= 0 && times.def <= 0;
-                if (allExpired) {
-                    autoStopAtDeadline();
-                    return;
-                }
+            if (validation && AUTO.planMode !== 'return') {
+                throw new Error(validation);
             }
 
             AUTO.cycles++;
@@ -5040,6 +5237,14 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                 }
 
                 if (AUTO.mode === 'live') {
+                    const violations = autoFinalRuntimeGuard(squadRequests, villages, times);
+                    if (violations.length) {
+                        const worst = violations
+                            .sort((a,b) => b.runtimeMs - a.runtimeMs)[0];
+                        const actual = safetyRuntimeLabel(worst.runtimeMs / 3600000);
+                        const limit = safetyRuntimeLabel(worst.limitHours);
+                        throw new Error(`Laufzeit-Schutz hat ${violations.length} Auftrag/-aufträge blockiert. Längster Auftrag ${actual}, erlaubt ${limit}. Es wurde NICHT gesendet.`);
+                    }
                     await autoSendRequests(squadRequests);
                 }
 
@@ -5152,7 +5357,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
             // automatisch „neues Heute 22:30“ werden.
             const frozenDeadline = autoFreezeDeadlinesAtStart();
             if (frozenDeadline.stopAt <= parseServerDate()) {
-                autoLog(`❌ Start nicht möglich: Die gewählte einmalige Deadline ${autoFormatDeadline(frozenDeadline.stopAt)} ist bereits erreicht.`);
+                autoLog(`❌ Start nicht möglich: Die gewählte Autopilot-Endzeit ${autoFormatDeadline(frozenDeadline.stopAt)} ist bereits erreicht.`);
                 autoUpdateStatus('Deadline bereits erreicht');
                 notifyError('Die gewählte Autopilot-Deadline ist bereits erreicht.');
                 return;
@@ -5171,6 +5376,8 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                     AUTO.launched = 0;
                     AUTO.sentGroups = 0;
                     AUTO.droppedCategories = 0;
+                    AUTO.runtimeClamped = 0;
+                    AUTO.runtimeRejected = 0;
 
                     clearInterval(AUTO.statusTimer);
                     AUTO.statusTimer = setInterval(() => autoUpdateStatus(), 1000);
@@ -5186,7 +5393,12 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                         autoLog('Simulation gestartet. Es werden KEINE echten Sammelaufträge gesendet.');
                     }
 
-                    autoLog(`⏰ Einmalige Deadline eingefroren · Off ${autoFormatDeadline(AUTO.deadlineOffAt)} · Deff ${autoFormatDeadline(AUTO.deadlineDefAt)} · spätestens ${autoFormatDeadline(AUTO.stopDeadlineAt)} wird der Autopilot automatisch beendet.`);
+                    if (AUTO.planMode === 'runtime') {
+                        autoLog(`⏱ Planungsmodus Laufzeit · Off ${safetyRuntimeLabel(AUTO.runtimeOffHours)} · Def ${safetyRuntimeLabel(AUTO.runtimeDefHours)} · harte Maximaldauer je Raubzug ${safetyRuntimeLabel(AUTO.maxRaidHours)}.`);
+                    } else {
+                        autoLog(`⏰ Rückkehrgrenze eingefroren · Off ${autoFormatDeadline(AUTO.deadlineOffAt)} · Def ${autoFormatDeadline(AUTO.deadlineDefAt)} · zusätzlich max. ${safetyRuntimeLabel(AUTO.maxRaidHours)} je Raubzug.`);
+                    }
+                    autoLog(`🛑 Autopilot läuft bis ${autoFormatDeadline(AUTO.stopDeadlineAt)} und startet danach keine neuen Aufträge mehr.`);
 
                     autoCycle();
                 } catch (error) {
@@ -5284,31 +5496,39 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
     function updateAutomateDeadlineBadge() {
         serverDateMs = parseServerDate();
-        let label = '—';
-        let remaining = '';
-        try {
-            const times = getEffectiveTimes();
-            const mode = $('input[name="mspTimeMode"]:checked').val();
-            if (mode === 'runtime') {
-                const maxH = Math.max(Number(times.off || 0), Number(times.def || 0));
-                if (Number.isFinite(maxH) && maxH > 0) {
-                    const target = new Date(serverDateMs + maxH * 3600000);
-                    label = target.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
-                    remaining = safetyRuntimeLabel(maxH);
-                }
-            } else {
-                const offAt = parseLocalDateTime($('#mspOffDate').val(), $('#mspOffTime').val());
-                const defAt = parseLocalDateTime($('#mspDefDate').val(), $('#mspDefTime').val());
-                const values = [offAt, defAt].filter(v => Number.isFinite(v) && v > serverDateMs);
-                if (values.length) {
-                    const targetAt = Math.max(...values);
-                    label = new Date(targetAt).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
-                    remaining = safetyRuntimeLabel((targetAt - serverDateMs) / 3600000);
-                }
-            }
-        } catch {}
-        $('#mspAutoDeadlineValue').text(label);
-        $('#mspAutoDeadlineRemaining').text(remaining ? `noch ${remaining}` : 'Deadline');
+        const stopAt = autoReadStopDeadlineInput();
+        if (Number.isFinite(stopAt) && stopAt > serverDateMs) {
+            $('#mspAutoDeadlineRemaining').text(`noch ${safetyRuntimeLabel((stopAt - serverDateMs) / 3600000)}`);
+        } else {
+            $('#mspAutoDeadlineRemaining').text('Ende wählen');
+        }
+    }
+
+    function initAutomateStopInputs() {
+        serverDateMs = parseServerDate();
+        let date = localStorage.getItem('msp_automate_stop_date') || '';
+        let time = localStorage.getItem('msp_automate_stop_time') || '';
+
+        let stored = parseLocalDateTime(date, time);
+        if (!(stored > serverDateMs)) {
+            // Als erste sinnvolle Vorgabe die aktuell eingestellte späteste Rückkehrzeit übernehmen.
+            const offAt = parseLocalDateTime($('#mspOffDate').val(), $('#mspOffTime').val());
+            const defAt = parseLocalDateTime($('#mspDefDate').val(), $('#mspDefTime').val());
+            const candidate = Math.max(
+                Number.isFinite(offAt) ? offAt : 0,
+                Number.isFinite(defAt) ? defAt : 0
+            );
+            const fallback = candidate > serverDateMs
+                ? new Date(candidate)
+                : new Date(serverDateMs + 8 * 3600000);
+            const parts = dateParts(fallback);
+            date = parts.date;
+            time = parts.time;
+        }
+
+        $('#mspAutoStopDate').val(date);
+        $('#mspAutoStopTime').val(time);
+        updateAutomateDeadlineBadge();
     }
 
     function initAutomateSimulation() {
@@ -5343,7 +5563,14 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                             <small><input id="mspAutoBundleMinutes" type="number" min="0" max="60" step="1"
                                 value="${Math.round(AUTO.bundleWindowMs / 60000)}"> Min.</small>
                         </div>
-                        <div class="msp-auto-stat"><b id="mspAutoDeadlineValue">—</b><small id="mspAutoDeadlineRemaining">Deadline</small></div>
+                        <div class="msp-auto-stat msp-auto-stop-stat">
+                            <b>🛑 Autopilot bis</b>
+                            <small>
+                                <input id="mspAutoStopDate" type="date">
+                                <input id="mspAutoStopTime" type="time">
+                            </small>
+                            <small id="mspAutoDeadlineRemaining">—</small>
+                        </div>
                     </div>
 
                     <div class="msp-auto-details">
@@ -5360,7 +5587,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                             Vor jedem echten Versand werden Dörfer, Kategorien und Truppen erneut geladen. Bei unklarer Antwort stoppt der Autopilot.
                         </div>
                         <div class="msp-auto-info red" style="grid-column:1/-1;">
-                            <b>⏰ Einmalige Deadline</b> · „Heute“, „Morgen“ und Laufzeiten wie „4h“ werden beim Start eingefroren. Danach beendet sich der Autopilot vollständig.
+                            <b>⏰ Zwei getrennte Zeitgrenzen</b> · „Autopilot bis“ bestimmt nur, wie lange das Script neue Aufträge starten darf. „Max. je Raubzug“ ist eine harte Obergrenze für jeden einzelnen Auftrag. Rückkehrzeiten bleiben zusätzlich als eigene Planungsgrenze bestehen.
                         </div>
                     </div>
 
@@ -5395,6 +5622,20 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
             }
         });
 
+        $('#mspAutoStopDate,#mspAutoStopTime').on('input change', function () {
+            localStorage.setItem('msp_automate_stop_date', String($('#mspAutoStopDate').val() || ''));
+            localStorage.setItem('msp_automate_stop_time', String($('#mspAutoStopTime').val() || ''));
+            updateAutomateDeadlineBadge();
+        });
+
+        $('#mspAutoMaxRaidHours').on('input change', function () {
+            const value = Math.max(0.1, Math.min(48, Number($(this).val()) || 4));
+            $(this).val(value);
+            AUTO.maxRaidHours = value;
+            localStorage.setItem('msp_automate_max_raid_hours', String(value));
+        });
+
+        initAutomateStopInputs();
         updateAutomateDeadlineBadge();
     }
 
