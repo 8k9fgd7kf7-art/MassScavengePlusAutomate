@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.1
+// MassScavengePlusAutomate v1.3.2
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.1',
+        version: '1.3.2',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -1521,6 +1521,22 @@
  #${APP.id} .msp-auto-time-control-inputs input[type="date"] { flex:1 1 auto; width:auto; }
 }
 
+
+/* v1.3.2 – Schnellauswahl für Autopilot-Endzeit */
+#${APP.id} .msp-auto-time-control-right {
+    display:flex; flex-direction:column; align-items:flex-end; gap:5px; min-width:0;
+}
+#${APP.id} .msp-auto-stop-quick {
+    display:flex; flex-wrap:wrap; justify-content:flex-end; gap:4px;
+}
+#${APP.id} .msp-auto-stop-quick .msp-auto-stop-preset {
+    padding:3px 7px !important; min-width:0 !important; font-size:10px !important;
+}
+@media(max-width:760px){
+    #${APP.id} .msp-auto-time-control-right { align-items:stretch; }
+    #${APP.id} .msp-auto-stop-quick { justify-content:flex-start; }
+}
+
 `;
 
         $('<style>', { id: APP.styleId }).text(css).appendTo(document.head);
@@ -1801,9 +1817,19 @@
                         <b>🛑 Autopilot: neue Raubzüge starten bis</b>
                         <span>Danach werden keine neuen Aufträge mehr gestartet. Laufende Raubzüge dürfen normal zurückkehren.</span>
                     </div>
-                    <div class="msp-auto-time-control-inputs">
-                        <input id="mspAutoStopDate" type="date">
-                        <input id="mspAutoStopTime" type="time">
+                    <div class="msp-auto-time-control-right">
+                        <div class="msp-auto-time-control-inputs">
+                            <input id="mspAutoStopDate" type="date">
+                            <input id="mspAutoStopTime" type="time">
+                        </div>
+                        <div class="msp-auto-stop-quick" aria-label="Schnellauswahl Autopilot-Ende">
+                            <button type="button" class="msp-btn msp-btn-secondary msp-auto-stop-preset" data-stop-type="hours" data-stop-value="2">+2h</button>
+                            <button type="button" class="msp-btn msp-btn-secondary msp-auto-stop-preset" data-stop-type="hours" data-stop-value="4">+4h</button>
+                            <button type="button" class="msp-btn msp-btn-secondary msp-auto-stop-preset" data-stop-type="hours" data-stop-value="6">+6h</button>
+                            <button type="button" class="msp-btn msp-btn-secondary msp-auto-stop-preset" data-stop-type="today" data-stop-value="22:30">Heute 22:30</button>
+                            <button type="button" class="msp-btn msp-btn-secondary msp-auto-stop-preset" data-stop-type="today" data-stop-value="23:00">Heute 23:00</button>
+                            <button type="button" class="msp-btn msp-btn-secondary msp-auto-stop-preset" data-stop-type="tomorrow" data-stop-value="07:00">Morgen 07:00</button>
+                        </div>
                     </div>
                 </div>
 
@@ -4507,7 +4533,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
 
     /* =========================================================
-       Mass Scavenge+ Automate – Autopilot v1.3.1
+       Mass Scavenge+ Automate – Autopilot v1.3.2
        - Simulation und echter Autopilot nutzen dieselbe getestete Planungslogik
        - nutzt automatisch alle freien/freigeschalteten Kategorien
        - jeder einzelne Auftrag braucht mindestens 10 Bauernhofplätze
@@ -5477,6 +5503,37 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         $('#mspStatusCategories').text('Kategorien: automatisch');
     }
 
+    function applyAutoStopPreset(type, value) {
+        serverDateMs = parseServerDate();
+        const now = new Date(serverDateMs);
+        let target = null;
+
+        if (type === 'hours') {
+            const hours = Number(value);
+            if (!(hours > 0)) return;
+            target = new Date(serverDateMs + hours * 3600000);
+        } else {
+            if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(value))) return;
+            const [hour, minute] = String(value).split(':').map(Number);
+            target = new Date(now);
+            target.setHours(hour, minute, 0, 0);
+
+            if (type === 'tomorrow') {
+                target.setDate(target.getDate() + 1);
+            } else if (type === 'today' && target.getTime() <= serverDateMs) {
+                notifyError(`„Heute ${value}“ liegt bereits in der Vergangenheit.`);
+                return;
+            }
+        }
+
+        const parts = dateParts(target);
+        $('#mspAutoStopDate').val(parts.date);
+        $('#mspAutoStopTime').val(parts.time);
+        localStorage.setItem('msp_automate_stop_date', parts.date);
+        localStorage.setItem('msp_automate_stop_time', parts.time);
+        updateAutomateDeadlineBadge();
+    }
+
     function updateAutomateDeadlineBadge() {
         serverDateMs = parseServerDate();
         const stopAt = autoReadStopDeadlineInput();
@@ -5603,6 +5660,10 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
             if (AUTO.running) {
                 autoLog(`⚙ Bündelungsfenster auf ${minutes} Min. geändert · gilt ab der nächsten frischen Planung.`);
             }
+        });
+
+        $('.msp-auto-stop-preset').on('click', function () {
+            applyAutoStopPreset(String($(this).data('stop-type') || ''), String($(this).data('stop-value') || ''));
         });
 
         $('#mspAutoStopDate,#mspAutoStopTime').on('input change', function () {
