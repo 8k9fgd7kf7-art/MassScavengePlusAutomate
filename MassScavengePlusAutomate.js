@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.6
+// MassScavengePlusAutomate v1.3.7
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.6',
+        version: '1.3.7',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -1584,7 +1584,7 @@
 }
 
 
-/* v1.3.6 – kompakter UI-Polish */
+/* v1.3.7 – kompakter UI-Polish */
 #${APP.id} .msp-time-block {
     padding:8px;
     border:1px solid #d3bd88;
@@ -1624,9 +1624,9 @@
     border-color:#d77b70; background:#fff4f2;
     box-shadow:inset 0 0 0 1px rgba(156,31,22,.08);
 }
-/* v1.3.6 – Autopilot-Schnellwahl links und einklappbare Verteilung */
+/* v1.3.7 – Autopilot-Schnellwahl links und einklappbare Verteilung */
 #${APP.id} #mspAutoStopQuickButtons {
-    flex:0 1 auto !important;
+    flex:1 1 320px !important;
     justify-content:flex-start !important;
 }
 #${APP.id} .msp-distribution-summary {
@@ -2961,7 +2961,7 @@
         });
 
         $('#mspQuickSave').on('click', function () {
-            // v1.3.6: sichtbare Werte vor dem Speichern explizit übernehmen,
+            // v1.3.7: sichtbare Werte vor dem Speichern explizit übernehmen,
             // damit insbesondere frei umbenannte Buttonnamen sicher erhalten bleiben.
             draftButtons.forEach((item, index) => {
                 const label = String($(`.msp-q-label[data-index="${index}"]`).val() || '').trim();
@@ -4659,7 +4659,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
 
     /* =========================================================
-       Mass Scavenge+ Automate – Autopilot v1.3.6
+       Mass Scavenge+ Automate – Autopilot v1.3.7
        - Simulation und echter Autopilot nutzen dieselbe getestete Planungslogik
        - nutzt automatisch alle freien/freigeschalteten Kategorien
        - jeder einzelne Auftrag braucht mindestens 10 Bauernhofplätze
@@ -5767,7 +5767,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         $('#mspAutoStopQuickClose,#mspAutoStopQuickCancel').on('click', () => modal.remove());
 
         $('#mspAutoStopQuickSave').on('click', function () {
-            // v1.3.6: aktuelle Eingabefelder vor dem Speichern vollständig übernehmen.
+            // v1.3.7: aktuelle Eingabefelder vor dem Speichern vollständig übernehmen.
             draft.forEach((item, index) => {
                 const label = String($(`.msp-auto-stop-q-label[data-index="${index}"]`).val() || '').trim();
                 const type = String($(`.msp-auto-stop-q-type[data-index="${index}"]`).val() || item.type || 'hours');
