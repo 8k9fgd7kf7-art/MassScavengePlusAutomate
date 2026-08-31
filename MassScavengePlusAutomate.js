@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.4
+// MassScavengePlusAutomate v1.3.5
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.4',
+        version: '1.3.5',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -1584,14 +1584,52 @@
 }
 
 
-/* v1.3.4 – klare Beschriftung der Schnellbutton-Bereiche */
+/* v1.3.5 – kompakter UI-Polish */
+#${APP.id} .msp-time-block {
+    padding:8px;
+    border:1px solid #d3bd88;
+    border-radius:5px;
+    background:#fffdf6;
+}
+#${APP.id} .msp-time-block + .msp-time-block { margin-top:9px; }
+#${APP.id} .msp-time-block-title {
+    display:flex; align-items:center; gap:5px; margin-bottom:7px;
+    font-size:12px; font-weight:700; color:#5d4719;
+}
+#${APP.id} .msp-info-hint {
+    display:inline-flex; align-items:center; justify-content:center;
+    width:16px; height:16px; border:1px solid #b99a57; border-radius:50%;
+    color:#765d26; background:#fffaf0; font-size:10px; font-weight:700;
+    cursor:help; flex:0 0 auto;
+}
+#${APP.id} .msp-quick-unified { margin-top:8px; }
+#${APP.id} .msp-quick-unified-head {
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+    margin-bottom:5px;
+}
 #${APP.id} .msp-quick-purpose-title {
-    width:100%;
-    font-size:10px;
-    font-weight:700;
-    opacity:.78;
-    margin:1px 0 3px;
-    letter-spacing:.1px;
+    font-size:10px; font-weight:700; opacity:.8; letter-spacing:.1px;
+}
+#${APP.id} .msp-quick-unified-row {
+    display:flex; align-items:flex-start; gap:5px; flex-wrap:wrap;
+}
+#${APP.id} .msp-quick-unified-row > :first-child {
+    display:flex; flex:1 1 320px; flex-wrap:wrap; gap:5px;
+}
+#${APP.id} .msp-time-hint.msp-time-past {
+    opacity:1; color:#9c1f16; font-weight:700; background:#ffe9e6;
+    border:1px solid #d77b70; border-radius:4px; padding:2px 5px;
+}
+#${APP.id} .msp-time-side.msp-time-past {
+    border-color:#d77b70; background:#fff4f2;
+    box-shadow:inset 0 0 0 1px rgba(156,31,22,.08);
+}
+@media(max-width:760px){
+    #${APP.id} .msp-quick-unified-head { align-items:flex-start; }
+    #${APP.id} .msp-quick-unified-row { flex-direction:column; }
+    #${APP.id} .msp-quick-unified-row > :first-child { flex:0 1 auto; width:100%; }
+    #${APP.id} .msp-quick-personalize,
+    #${APP.id} #mspAutoStopQuickSettingsBtn { align-self:flex-end; }
 }
 
 `;
@@ -1826,75 +1864,68 @@
             </section>
 
         <section class="msp-panel" id="mspTimePanel">
-            <div class="msp-panel-title">4. Laufzeit / Rückkehr</div>
+            <div class="msp-panel-title">🕰️ Zeitsteuerung</div>
             <div class="msp-panel-content">
-                <div class="msp-time-mode-row">
-                    <label><input type="radio" name="mspTimeMode" value="return"> Rückkehrzeit</label>
-                    <label><input type="radio" name="mspTimeMode" value="runtime"> Laufzeit in Stunden</label>
-                    <label class="msp-max-raid-runtime" title="Harte Obergrenze für jeden einzelnen neu gestarteten Sammelauftrag.">
-                        <b>Max. je Raubzug:</b>
-                        <input id="mspAutoMaxRaidHours" type="number" min="0.1" max="48" step="0.25"
-                            value="${escapeHtml(String(AUTO.maxRaidHours))}"> Std.
-                    </label>
-                </div>
+                <div class="msp-time-block">
+                    <div class="msp-time-block-title">Raubzüge <span class="msp-info-hint" title="Lege Rückkehrzeit oder Laufzeit für Off- und Def-Dörfer fest.">ⓘ</span></div>
+                    <div class="msp-time-mode-row">
+                        <label><input type="radio" name="mspTimeMode" value="return"> Rückkehrzeit</label>
+                        <label><input type="radio" name="mspTimeMode" value="runtime"> Laufzeit in Stunden</label>
+                        <label class="msp-max-raid-runtime" title="Harte Obergrenze: Kein einzelner neu gestarteter Raubzug darf länger laufen – unabhängig von Rückkehrzeit oder eingestellter Laufzeit.">
+                            <b>Max. je Raubzug:</b>
+                            <input id="mspAutoMaxRaidHours" type="number" min="0.1" max="48" step="0.25"
+                                value="${escapeHtml(String(AUTO.maxRaidHours))}"> Std.
+                            <span class="msp-info-hint" title="Harte Obergrenze: gilt immer, unabhängig von Rückkehrzeit oder Laufzeit.">ⓘ</span>
+                        </label>
+                    </div>
 
-                <div class="msp-time-compact">
-                    <div class="msp-time-side">
-                        <div class="msp-time-side-title">Off-Dörfer <span class="msp-time-hint" id="mspOffDuration"></span></div>
-                        <div class="msp-time-inputs msp-return-row">
-                            <input type="date" id="mspOffDate">
-                            <input type="time" id="mspOffTime">
+                    <div class="msp-time-compact">
+                        <div class="msp-time-side" id="mspOffTimeSide">
+                            <div class="msp-time-side-title">Off-Dörfer <span class="msp-time-hint" id="mspOffDuration"></span></div>
+                            <div class="msp-time-inputs msp-return-row">
+                                <input type="date" id="mspOffDate"><input type="time" id="mspOffTime">
+                            </div>
+                            <div class="msp-time-inputs msp-runtime-row">
+                                <input type="number" id="mspOffRuntime" min="0.01" step="0.05" style="width:105px;"><span>Stunden</span>
+                            </div>
                         </div>
-                        <div class="msp-time-inputs msp-runtime-row">
-                            <input type="number" id="mspOffRuntime" min="0.01" step="0.05" style="width:105px;">
-                            <span>Stunden</span>
+                        <div class="msp-time-copy-center">
+                            <button class="msp-mini-btn" id="mspCopyOffToDef" type="button">Off → Def</button>
+                            <button class="msp-mini-btn" id="mspCopyDefToOff" type="button">Def → Off</button>
+                        </div>
+                        <div class="msp-time-side" id="mspDefTimeSide">
+                            <div class="msp-time-side-title">Def-Dörfer <span class="msp-time-hint" id="mspDefDuration"></span></div>
+                            <div class="msp-time-inputs msp-return-row">
+                                <input type="date" id="mspDefDate"><input type="time" id="mspDefTime">
+                            </div>
+                            <div class="msp-time-inputs msp-runtime-row">
+                                <input type="number" id="mspDefRuntime" min="0.01" step="0.05" style="width:105px;"><span>Stunden</span>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="msp-time-copy-center">
-                        <button class="msp-mini-btn" id="mspCopyOffToDef" type="button">Off → Def</button>
-                        <button class="msp-mini-btn" id="mspCopyDefToOff" type="button">Def → Off</button>
-                    </div>
-
-                    <div class="msp-time-side">
-                        <div class="msp-time-side-title">Def-Dörfer <span class="msp-time-hint" id="mspDefDuration"></span></div>
-                        <div class="msp-time-inputs msp-return-row">
-                            <input type="date" id="mspDefDate">
-                            <input type="time" id="mspDefTime">
+                    <div class="msp-quick-unified">
+                        <div class="msp-quick-unified-head"><span class="msp-quick-purpose-title">⏱ Schnellwahl Raubzüge</span><span class="msp-info-hint" title="Setzt Laufzeit oder Rückkehr direkt für Off- und Def-Dörfer.">ⓘ</span></div>
+                        <div class="msp-quick-unified-row">
+                            <span id="mspQuickButtons"></span>
+                            <button class="msp-btn msp-btn-secondary msp-quick-personalize" id="mspQuickSettingsBtn" type="button" title="Schnellbuttons einstellen, umbenennen und sortieren">⚙ Personalisieren</button>
                         </div>
-                        <div class="msp-time-inputs msp-runtime-row">
-                            <input type="number" id="mspDefRuntime" min="0.01" step="0.05" style="width:105px;">
-                            <span>Stunden</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="msp-auto-time-control">
-                    <div class="msp-auto-time-control-head">
-                        <b>🛑 Autopilot: neue Raubzüge starten bis</b>
-                        <span>Danach werden keine neuen Aufträge mehr gestartet. Laufende Raubzüge dürfen normal zurückkehren.</span>
-                    </div>
-                    <div class="msp-auto-time-control-right">
-                        <div class="msp-auto-time-control-inputs">
-                            <input id="mspAutoStopDate" type="date">
-                            <input id="mspAutoStopTime" type="time">
-                        </div>
-                        <div class="msp-quick-purpose-title">🛑 Autopilot-Ende</div>
-                        <div class="msp-auto-stop-quick-row">
-                            <div class="msp-auto-stop-quick" id="mspAutoStopQuickButtons" aria-label="Schnellauswahl Autopilot-Ende"></div>
-                            <button type="button" class="msp-btn msp-btn-secondary" id="mspAutoStopQuickSettingsBtn">⚙ Personalisieren</button>
-                        </div>
+                        <div class="msp-quick-box-foot" id="mspQuickHint">Setzt Off und Def gemeinsam.</div>
                     </div>
                 </div>
 
-                <div class="msp-quick-v28 msp-quick-box">
-                    <div class="msp-quick-purpose-title">⏱ Raubzug-Laufzeit / Rückkehr</div>
-                    <div class="msp-quick-box-head">Schnellauswahl</div>
-                    <div class="msp-quick-box-row">
-                        <span id="mspQuickButtons"></span>
-                        <button class="msp-btn msp-btn-secondary msp-quick-personalize" id="mspQuickSettingsBtn" type="button" title="Schnellbuttons einstellen und sortieren">⚙ Personalisieren</button>
+                <div class="msp-time-block">
+                    <div class="msp-time-block-title">🔴 Autopilot-Ende <span class="msp-info-hint" title="Bis zu diesem Zeitpunkt darf der Autopilot neue Aufträge starten. Laufende Raubzüge kehren normal zurück.">ⓘ</span></div>
+                    <div class="msp-auto-time-control-inputs">
+                        <input id="mspAutoStopDate" type="date"><input id="mspAutoStopTime" type="time">
                     </div>
-                    <div class="msp-quick-box-foot" id="mspQuickHint">Alle Schnellbuttons setzen die Laufzeit / Rückkehr direkt für Off und Def.</div>
+                    <div class="msp-quick-unified">
+                        <div class="msp-quick-unified-head"><span class="msp-quick-purpose-title">🛑 Schnellwahl Autopilot-Ende</span></div>
+                        <div class="msp-quick-unified-row">
+                            <div id="mspAutoStopQuickButtons" aria-label="Schnellwahl Autopilot-Ende"></div>
+                            <button type="button" class="msp-btn msp-btn-secondary msp-quick-personalize" id="mspAutoStopQuickSettingsBtn" title="Schnellbuttons einstellen, umbenennen und sortieren">⚙ Personalisieren</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
@@ -2346,8 +2377,18 @@
 
     function updateDurationHints() {
         const times = getEffectiveTimes();
-        $('#mspOffDuration').text(`(${formatDuration(times.off * 3600)})`);
-        $('#mspDefDuration').text(`(${formatDuration(times.def * 3600)})`);
+        const returnMode = config.timeMode === 'return';
+        [
+            { key:'Off', hours:times.off },
+            { key:'Def', hours:times.def }
+        ].forEach(item => {
+            const past = returnMode && Number.isFinite(item.hours) && item.hours < 0;
+            const hint = $(`#msp${item.key}Duration`);
+            const side = $(`#msp${item.key}TimeSide`);
+            hint.text(past ? '⚠ Vergangenheit' : `(${formatDuration(item.hours * 3600)})`)
+                .toggleClass('msp-time-past', past);
+            side.toggleClass('msp-time-past', past);
+        });
     }
 
     function saveCurrentProfile() {
@@ -2905,7 +2946,7 @@
         });
 
         $('#mspQuickSave').on('click', function () {
-            // v1.3.4: sichtbare Werte vor dem Speichern explizit übernehmen,
+            // v1.3.5: sichtbare Werte vor dem Speichern explizit übernehmen,
             // damit insbesondere frei umbenannte Buttonnamen sicher erhalten bleiben.
             draftButtons.forEach((item, index) => {
                 const label = String($(`.msp-q-label[data-index="${index}"]`).val() || '').trim();
@@ -4603,7 +4644,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
 
     /* =========================================================
-       Mass Scavenge+ Automate – Autopilot v1.3.4
+       Mass Scavenge+ Automate – Autopilot v1.3.5
        - Simulation und echter Autopilot nutzen dieselbe getestete Planungslogik
        - nutzt automatisch alle freien/freigeschalteten Kategorien
        - jeder einzelne Auftrag braucht mindestens 10 Bauernhofplätze
@@ -5560,13 +5601,13 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         $('#mspAnalysisPanel').remove();
         $('#mspQuickModal').remove();
 
-        // Verbliebene Bereiche für die Automate-Oberfläche neu nummerieren.
-        $('#mspTroopsPanel > .msp-panel-title').first().contents().first()[0].textContent = '1. Truppen & Reserven ';
-        $('#mspDistributionPanel > .msp-panel-title').first().contents().first()[0].textContent = '2. Verteilung ';
-        $('#mspTimePanel > .msp-panel-title').first().contents().first()[0].textContent = '3. Laufzeit / Rückkehr ';
-        $('#mspVillagesPanel > .msp-panel-title').first().contents().first()[0].textContent = '4. Dörfer ';
+        // Symbolnamen ersetzen die alte technische Nummerierung.
+        $('#mspTroopsPanel > .msp-panel-title').first().contents().first()[0].textContent = '👥 Truppen & Reserven ';
+        $('#mspDistributionPanel > .msp-panel-title').first().contents().first()[0].textContent = '⚖️ Verteilung ';
+        $('#mspTimePanel > .msp-panel-title').first().contents().first()[0].textContent = '🕰️ Zeitsteuerung ';
+        $('#mspVillagesPanel > .msp-panel-title').first().contents().first()[0].textContent = '🏠 Dörfer ';
 
-        // Zeitsteuerung bewusst nach oben: Abschnitt 3 steht vor Abschnitt 1.
+        // Zeitsteuerung bewusst nach oben.
         $('#mspTimePanel').insertBefore($('#mspTroopsPanel'));
 
         $('#mspVillageSummary').html('<span class="msp-village-chip">Automate lädt die Dörfer bei jedem Zyklus frisch. Die optionale Dorfwahl bleibt erhalten.</span>');
@@ -5708,7 +5749,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         $('#mspAutoStopQuickClose,#mspAutoStopQuickCancel').on('click', () => modal.remove());
 
         $('#mspAutoStopQuickSave').on('click', function () {
-            // v1.3.4: aktuelle Eingabefelder vor dem Speichern vollständig übernehmen.
+            // v1.3.5: aktuelle Eingabefelder vor dem Speichern vollständig übernehmen.
             draft.forEach((item, index) => {
                 const label = String($(`.msp-auto-stop-q-label[data-index="${index}"]`).val() || '').trim();
                 const type = String($(`.msp-auto-stop-q-type[data-index="${index}"]`).val() || item.type || 'hours');
