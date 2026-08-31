@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.3
+// MassScavengePlusAutomate v1.3.4
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.3',
+        version: '1.3.4',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -1583,6 +1583,17 @@
  .msp-auto-stop-quick-grid .msp-auto-stop-q-value { grid-column:2; }
 }
 
+
+/* v1.3.4 – klare Beschriftung der Schnellbutton-Bereiche */
+#${APP.id} .msp-quick-purpose-title {
+    width:100%;
+    font-size:10px;
+    font-weight:700;
+    opacity:.78;
+    margin:1px 0 3px;
+    letter-spacing:.1px;
+}
+
 `;
 
         $('<style>', { id: APP.styleId }).text(css).appendTo(document.head);
@@ -1868,6 +1879,7 @@
                             <input id="mspAutoStopDate" type="date">
                             <input id="mspAutoStopTime" type="time">
                         </div>
+                        <div class="msp-quick-purpose-title">🛑 Autopilot-Ende</div>
                         <div class="msp-auto-stop-quick-row">
                             <div class="msp-auto-stop-quick" id="mspAutoStopQuickButtons" aria-label="Schnellauswahl Autopilot-Ende"></div>
                             <button type="button" class="msp-btn msp-btn-secondary" id="mspAutoStopQuickSettingsBtn">⚙ Personalisieren</button>
@@ -1876,6 +1888,7 @@
                 </div>
 
                 <div class="msp-quick-v28 msp-quick-box">
+                    <div class="msp-quick-purpose-title">⏱ Raubzug-Laufzeit / Rückkehr</div>
                     <div class="msp-quick-box-head">Schnellauswahl</div>
                     <div class="msp-quick-box-row">
                         <span id="mspQuickButtons"></span>
@@ -2749,7 +2762,7 @@
                     <button type="button" class="msp-q-move-up" data-index="${index}" title="Nach oben" ${index === 0 ? 'disabled' : ''}>↑</button>
                     <button type="button" class="msp-q-move-down" data-index="${index}" title="Nach unten" ${index === draftButtons.length - 1 ? 'disabled' : ''}>↓</button>
                 </div>
-                <input type="text" class="msp-q-label" data-index="${index}" maxlength="24" value="${escapeHtml(item.label)}">
+                <input type="text" class="msp-q-label" data-index="${index}" maxlength="24" placeholder="Buttonname" title="Frei wählbarer Buttonname" value="${escapeHtml(item.label)}">
                 <select class="msp-q-type" data-index="${index}">
                     <option value="hours" ${item.type === 'hours' ? 'selected' : ''}>+X Stunden</option>
                     <option value="today" ${item.type === 'today' ? 'selected' : ''}>Heute um</option>
@@ -2767,7 +2780,7 @@
 
             grid.html(`
                 <div class="msp-quick-settings-head">↕</div>
-                <div class="msp-quick-settings-head">Anzeige</div>
+                <div class="msp-quick-settings-head">Buttonname</div>
                 <div class="msp-quick-settings-head">Logik</div>
                 <div class="msp-quick-settings-head">Wert</div>
                 <div class="msp-quick-settings-head">Empfehlung</div>
@@ -2787,7 +2800,7 @@
             <p style="margin-top:0;font-size:11px;">
                 <b>Heute</b> bleibt immer heute. <b>Morgen</b> ist immer der nächste Kalendertag.
                 <b>Nächster Zeitpunkt</b> nimmt heute, solange die Uhrzeit noch kommt – sonst morgen.<br>
-                Mit <b>↑ / ↓</b> bestimmst du die Reihenfolge der Schnellbuttons.
+                Mit <b>↑ / ↓</b> bestimmst du die Reihenfolge der Schnellbuttons. Den <b>Buttonnamen</b> kannst du frei vergeben.
             </p>
             <div class="msp-quick-settings-grid" id="mspQuickGrid"></div>
             <div class="msp-q-add-row">
@@ -2892,6 +2905,21 @@
         });
 
         $('#mspQuickSave').on('click', function () {
+            // v1.3.4: sichtbare Werte vor dem Speichern explizit übernehmen,
+            // damit insbesondere frei umbenannte Buttonnamen sicher erhalten bleiben.
+            draftButtons.forEach((item, index) => {
+                const label = String($(`.msp-q-label[data-index="${index}"]`).val() || '').trim();
+                const type = String($(`.msp-q-type[data-index="${index}"]`).val() || item.type || 'hours');
+                const value = String($(`.msp-q-value[data-index="${index}"]`).val() || item.value || '');
+                const distribution = String($(`.msp-q-distribution[data-index="${index}"]`).val() || item.distribution || 'any');
+                draftButtons[index] = {
+                    ...item,
+                    label: label || item.label || (type === 'hours' ? '+1h' : 'Zeit'),
+                    type,
+                    value,
+                    distribution
+                };
+            });
             const result = [];
 
             for (let index = 0; index < draftButtons.length; index++) {
@@ -4575,7 +4603,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
 
     /* =========================================================
-       Mass Scavenge+ Automate – Autopilot v1.3.3
+       Mass Scavenge+ Automate – Autopilot v1.3.4
        - Simulation und echter Autopilot nutzen dieselbe getestete Planungslogik
        - nutzt automatisch alle freien/freigeschalteten Kategorien
        - jeder einzelne Auftrag braucht mindestens 10 Bauernhofplätze
@@ -5575,7 +5603,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                     <button type="button" class="msp-auto-stop-q-up" data-index="${index}" title="Nach oben" ${index === 0 ? 'disabled' : ''}>↑</button>
                     <button type="button" class="msp-auto-stop-q-down" data-index="${index}" title="Nach unten" ${index === draft.length - 1 ? 'disabled' : ''}>↓</button>
                 </div>
-                <input type="text" class="msp-auto-stop-q-label" data-index="${index}" maxlength="24" value="${escapeHtml(item.label)}">
+                <input type="text" class="msp-auto-stop-q-label" data-index="${index}" maxlength="24" placeholder="Buttonname" title="Frei wählbarer Buttonname" value="${escapeHtml(item.label)}">
                 <select class="msp-auto-stop-q-type" data-index="${index}">
                     <option value="hours" ${item.type === 'hours' ? 'selected' : ''}>+X Stunden</option>
                     <option value="today" ${item.type === 'today' ? 'selected' : ''}>Heute um</option>
@@ -5591,7 +5619,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
             grid.html(`
                 <div class="msp-quick-settings-head">↕</div>
-                <div class="msp-quick-settings-head">Anzeige</div>
+                <div class="msp-quick-settings-head">Buttonname</div>
                 <div class="msp-quick-settings-head">Logik</div>
                 <div class="msp-quick-settings-head">Wert</div>
                 <div></div>
@@ -5608,7 +5636,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                     </div>
                     <div class="msp-modal-body">
                         <p style="margin-top:0;font-size:11px;">
-                            Diese Buttons ändern <b>nur das Autopilot-Ende</b> und sind unabhängig von den normalen Laufzeit-/Rückkehr-Schnellbuttons.
+                            Diese Buttons ändern <b>nur das Autopilot-Ende</b> und sind unabhängig von den normalen Laufzeit-/Rückkehr-Schnellbuttons. Den <b>Buttonnamen</b> kannst du frei vergeben.
                         </p>
                         <div class="msp-quick-settings-grid msp-auto-stop-quick-grid" id="mspAutoStopQuickGrid"></div>
                         <div class="msp-q-add-row">
@@ -5680,6 +5708,18 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         $('#mspAutoStopQuickClose,#mspAutoStopQuickCancel').on('click', () => modal.remove());
 
         $('#mspAutoStopQuickSave').on('click', function () {
+            // v1.3.4: aktuelle Eingabefelder vor dem Speichern vollständig übernehmen.
+            draft.forEach((item, index) => {
+                const label = String($(`.msp-auto-stop-q-label[data-index="${index}"]`).val() || '').trim();
+                const type = String($(`.msp-auto-stop-q-type[data-index="${index}"]`).val() || item.type || 'hours');
+                const value = String($(`.msp-auto-stop-q-value[data-index="${index}"]`).val() || item.value || '');
+                draft[index] = {
+                    ...item,
+                    label: label || item.label || (type === 'hours' ? '+2h' : 'Zeit'),
+                    type,
+                    value
+                };
+            });
             draft.forEach((_, i) => readRow(i));
 
             for (const item of draft) {
