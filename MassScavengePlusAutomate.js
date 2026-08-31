@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.7
+// MassScavengePlusAutomate v1.3.8
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.7',
+        version: '1.3.8',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -1584,7 +1584,7 @@
 }
 
 
-/* v1.3.7 – kompakter UI-Polish */
+/* v1.3.8 – kompakter UI-Polish */
 #${APP.id} .msp-time-block {
     padding:8px;
     border:1px solid #d3bd88;
@@ -1624,7 +1624,7 @@
     border-color:#d77b70; background:#fff4f2;
     box-shadow:inset 0 0 0 1px rgba(156,31,22,.08);
 }
-/* v1.3.7 – Autopilot-Schnellwahl links und einklappbare Verteilung */
+/* v1.3.8 – Autopilot-Schnellwahl links und einklappbare Verteilung */
 #${APP.id} #mspAutoStopQuickButtons {
     flex:1 1 320px !important;
     justify-content:flex-start !important;
@@ -1632,6 +1632,19 @@
 #${APP.id} .msp-distribution-summary {
     margin-left:5px; font-size:10px; font-weight:400; opacity:.72;
 }
+/* Die ältere display:block-Regel der Verteilung darf den Klappzustand nicht überstimmen. */
+#${APP.id} #mspDistributionPanel.msp-collapsed > .msp-panel-content {
+    display:none !important;
+}
+.msp-info-popover {
+    position:fixed; z-index:100000; max-width:min(300px,calc(100vw - 24px));
+    padding:8px 10px; border:1px solid #9d7d3f; border-radius:5px;
+    background:#fff8e8; color:#3f2c0e; box-shadow:0 4px 14px rgba(0,0,0,.28);
+    font:11px/1.4 Arial,sans-serif;
+}
+.msp-info-popover:focus { outline:2px solid #c89b3c; outline-offset:1px; }
+#${APP.id} .msp-info-hint { cursor:pointer; }
+
 @media(max-width:760px){
     #${APP.id} .msp-quick-unified-head { align-items:flex-start; }
     #${APP.id} .msp-quick-unified-row { flex-direction:column; }
@@ -2961,7 +2974,7 @@
         });
 
         $('#mspQuickSave').on('click', function () {
-            // v1.3.7: sichtbare Werte vor dem Speichern explizit übernehmen,
+            // v1.3.8: sichtbare Werte vor dem Speichern explizit übernehmen,
             // damit insbesondere frei umbenannte Buttonnamen sicher erhalten bleiben.
             draftButtons.forEach((item, index) => {
                 const label = String($(`.msp-q-label[data-index="${index}"]`).val() || '').trim();
@@ -3345,7 +3358,48 @@
         }, 1000);
     }
 
+    function closeInfoPopover() {
+        $('.msp-info-popover').remove();
+    }
+
+    function openInfoPopover(trigger) {
+        const button = $(trigger);
+        const message = String(button.attr('title') || '').trim();
+        closeInfoPopover();
+        if (!message) return;
+
+        const popover = $('<div>', {
+            class: 'msp-info-popover',
+            role: 'dialog',
+            tabindex: '-1',
+            text: message
+        }).appendTo(document.body);
+
+        const rect = trigger.getBoundingClientRect();
+        const width = popover.outerWidth();
+        const height = popover.outerHeight();
+        const left = Math.max(8, Math.min(window.innerWidth - width - 8, rect.left + rect.width / 2 - width / 2));
+        let top = rect.bottom + 7;
+        if (top + height > window.innerHeight - 8) top = Math.max(8, rect.top - height - 7);
+        popover.css({ left, top }).trigger('focus');
+    }
+
     function bindUiComfortEvents() {
+        $('#' + APP.id).on('click', '.msp-info-hint', function(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            const alreadyOpen = $('.msp-info-popover').length > 0;
+            const sameText = $('.msp-info-popover').text() === String($(this).attr('title') || '').trim();
+            if (alreadyOpen && sameText) return closeInfoPopover();
+            openInfoPopover(this);
+        });
+        $(document).on('click.mspInfoPopover', function(event) {
+            if (!$(event.target).closest('.msp-info-popover,.msp-info-hint').length) closeInfoPopover();
+        });
+        $(document).on('keydown.mspInfoPopover', function(event) {
+            if (event.key === 'Escape') closeInfoPopover();
+        });
+
         $('#mspScrollTop').on('click', function() {
             $(`#${APP.id} .msp-body`).stop(true).animate({ scrollTop: 0 }, 180);
         });
@@ -4659,7 +4713,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
 
     /* =========================================================
-       Mass Scavenge+ Automate – Autopilot v1.3.7
+       Mass Scavenge+ Automate – Autopilot v1.3.8
        - Simulation und echter Autopilot nutzen dieselbe getestete Planungslogik
        - nutzt automatisch alle freien/freigeschalteten Kategorien
        - jeder einzelne Auftrag braucht mindestens 10 Bauernhofplätze
@@ -5767,7 +5821,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         $('#mspAutoStopQuickClose,#mspAutoStopQuickCancel').on('click', () => modal.remove());
 
         $('#mspAutoStopQuickSave').on('click', function () {
-            // v1.3.7: aktuelle Eingabefelder vor dem Speichern vollständig übernehmen.
+            // v1.3.8: aktuelle Eingabefelder vor dem Speichern vollständig übernehmen.
             draft.forEach((item, index) => {
                 const label = String($(`.msp-auto-stop-q-label[data-index="${index}"]`).val() || '').trim();
                 const type = String($(`.msp-auto-stop-q-type[data-index="${index}"]`).val() || item.type || 'hours');
