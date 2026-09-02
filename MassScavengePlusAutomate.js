@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.11
+// MassScavengePlusAutomate v1.3.12
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.11',
+        version: '1.3.12',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -4233,7 +4233,12 @@
 
     function getHtml(url) {
         return new Promise((resolve, reject) => {
-            $.get(url)
+            // v1.3.12: Cache-Buster erzwingt bei jedem Zyklus wirklich frische
+            // Massenraubzug-Daten. Dadurch werden auch während des laufenden
+            // Autopiloten neu freigeschaltete Sammelkategorien sofort erkannt.
+            const separator = String(url).includes('?') ? '&' : '?';
+            const freshUrl = `${url}${separator}_mspfresh=${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
+            $.get(freshUrl)
                 .done(resolve)
                 .fail(xhr => reject(new Error(`HTTP-Fehler beim Laden (${xhr.status || 'unbekannt'}).`)));
         });
@@ -4964,9 +4969,49 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         maxRaidHours: Math.max(0.1, Number(localStorage.getItem('msp_automate_max_raid_hours') || 4)),
         runtimeSafetyMs: 30000,
         runtimeClamped: 0,
-        runtimeRejected: 0
+        runtimeRejected: 0,
+        optionLockState: new Map()
     };
 
+
+    function autoRefreshOptionUnlockState(villages) {
+        const previous = AUTO.optionLockState instanceof Map ? AUTO.optionLockState : new Map();
+        const next = new Map();
+        const newlyUnlocked = [];
+
+        for (const village of villages || []) {
+            const villageId = String(village?.village_id ?? '');
+            if (!villageId) continue;
+
+            for (let category = 1; category <= 4; category++) {
+                const option = village?.options?.[category];
+                if (!option) continue;
+
+                const key = `${villageId}:${category}`;
+                const locked = Boolean(option.is_locked);
+                next.set(key, locked);
+
+                // Nur echte Übergänge von "gesperrt" -> "frei" melden.
+                if (previous.has(key) && previous.get(key) === true && locked === false) {
+                    newlyUnlocked.push({
+                        villageId,
+                        category,
+                        villageName: villageCoords(village) || village.village_name || villageId
+                    });
+                }
+            }
+        }
+
+        AUTO.optionLockState = next;
+
+        if (newlyUnlocked.length) {
+            for (const item of newlyUnlocked) {
+                autoLog(`  🔓 ${item.villageName} · Kategorie ${item.category} wurde während des laufenden Autopiloten freigeschaltet und wird ab diesem Zyklus berücksichtigt.`);
+            }
+        }
+
+        return newlyUnlocked;
+    }
 
     function autoDuration(ms) {
         const total = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
@@ -5603,9 +5648,10 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
             AUTO.cycles++;
             autoUpdateStatus('prüft …');
-            autoLog(`Zyklus ${AUTO.cycles} · Check gestartet · Sammeldaten werden frisch eingelesen.`);
+            autoLog(`Zyklus ${AUTO.cycles} · Check gestartet · Sammeldaten werden frisch und cachefrei eingelesen.`);
 
             let villages = await loadAllVillagePages();
+            autoRefreshOptionUnlockState(villages);
             let plan = autoBuildPlan(villages, times, AUTO.mode === 'sim');
 
             // Im echten Modus unmittelbar vor dem Versand ein zweites Mal frisch lesen
@@ -5614,6 +5660,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                 autoLog('  🛡 Sicherheitscheck · Serverdaten werden direkt vor dem Versand erneut eingelesen.');
                 const firstRequests = plan.requests.slice();
                 villages = await loadAllVillagePages();
+                autoRefreshOptionUnlockState(villages);
                 plan = autoBuildPlan(villages, times, false);
                 if (!autoSamePlan(firstRequests, plan.requests)) {
                     autoLog(`  ↻ Plan hat sich beim Sicherheitscheck geändert · ${firstRequests.length} → ${plan.requests.length} Auftrag/-aufträge · es wird ausschließlich der neue Plan verwendet.`);
@@ -6201,7 +6248,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                         <b>📋 Protokoll</b>
                         <span>laufende Diagnose</span>
                     </div>
-                    <pre id="mspAutoLog" style="height:210px;overflow:auto;white-space:pre-wrap;background:#1f1f1f;color:#eee;padding:8px;margin:0;font:11px/1.4 Consolas,monospace;"></pre>
+                    <pre id="mspAutoLog" style="height:145px;min-height:110px;overflow:auto;white-space:pre-wrap;background:#1f1f1f;color:#eee;padding:8px;margin:0;font:11px/1.4 Consolas,monospace;"></pre>
                 </div>
             </div>`);
 
