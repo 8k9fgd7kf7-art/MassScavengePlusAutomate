@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.9
+// MassScavengePlusAutomate v1.3.10
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.9',
+        version: '1.3.10',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -2524,9 +2524,101 @@
         clearPreview();
     }
 
+    const FULL_EXPORT_FORMAT = 'MassScavengePlusAutomate';
+    const FULL_EXPORT_VERSION = 1;
+
+    function readAutomateSettingsForExport() {
+        const bundleMinutes = Math.max(0, Math.min(60, Number(localStorage.getItem('msp_automate_bundle_minutes') ?? (AUTO.bundleWindowMs / 60000) ?? 10)));
+        const maxRaidHours = Math.max(0.1, Math.min(48, Number(localStorage.getItem('msp_automate_max_raid_hours') ?? AUTO.maxRaidHours ?? 4)));
+        return {
+            bundleMinutes,
+            maxRaidHours,
+            stopDate: String(localStorage.getItem('msp_automate_stop_date') || $('#mspAutoStopDate').val() || ''),
+            stopTime: String(localStorage.getItem('msp_automate_stop_time') || $('#mspAutoStopTime').val() || '')
+        };
+    }
+
+    function buildFullSettingsExport() {
+        return {
+            exportFormat: FULL_EXPORT_FORMAT,
+            exportVersion: FULL_EXPORT_VERSION,
+            appVersion: APP.version,
+            exportedAt: new Date().toISOString(),
+            config: JSON.parse(JSON.stringify(config)),
+            automate: readAutomateSettingsForExport(),
+            uiState: {
+                collapsed: { ...(uiState?.collapsed || {}) },
+                compactDefaultsVersion: Number(uiState?.compactDefaultsVersion || 271)
+            },
+            villageTypeOverrides: { ...(villageTypeOverrides || {}) }
+        };
+    }
+
+    function normalizeImportedUiState(raw) {
+        return {
+            collapsed: raw && typeof raw.collapsed === 'object' && !Array.isArray(raw.collapsed) ? { ...raw.collapsed } : {},
+            compactDefaultsVersion: Number(raw?.compactDefaultsVersion || 271)
+        };
+    }
+
+    function normalizeImportedVillageTypes(raw) {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+        const clean = {};
+        for (const [id, value] of Object.entries(raw)) {
+            if (['off', 'def', 'mix'].includes(value)) clean[String(id)] = value;
+        }
+        return clean;
+    }
+
+    function applyImportedAutomateSettings(raw) {
+        const incoming = raw && typeof raw === 'object' ? raw : {};
+        const bundleMinutes = Math.max(0, Math.min(60, safeFloat(incoming.bundleMinutes, 10, 0, 60)));
+        const maxRaidHours = Math.max(0.1, Math.min(48, safeFloat(incoming.maxRaidHours, 4, 0.1, 48)));
+        localStorage.setItem('msp_automate_bundle_minutes', String(bundleMinutes));
+        localStorage.setItem('msp_automate_max_raid_hours', String(maxRaidHours));
+        const stopDate = /^\d{4}-\d{2}-\d{2}$/.test(String(incoming.stopDate || '')) ? String(incoming.stopDate) : '';
+        const stopTime = /^([01]\d|2[0-3]):[0-5]\d$/.test(String(incoming.stopTime || '')) ? String(incoming.stopTime) : '';
+        if (stopDate) localStorage.setItem('msp_automate_stop_date', stopDate); else localStorage.removeItem('msp_automate_stop_date');
+        if (stopTime) localStorage.setItem('msp_automate_stop_time', stopTime); else localStorage.removeItem('msp_automate_stop_time');
+        AUTO.bundleWindowMs = bundleMinutes * 60000;
+        AUTO.maxRaidHours = maxRaidHours;
+    }
+
+    function rerenderAfterSettingsImport() {
+        renderApp();
+        applyAutomateSlimUi();
+        prepareCollapsiblePanels();
+        bindUiComfortEvents();
+        updateTopStatus();
+        initAutomateSimulation();
+    }
+
+    function importSettingsPayload(imported) {
+        if (imported && imported.exportFormat === FULL_EXPORT_FORMAT && Number(imported.exportVersion) >= 1 && imported.config && typeof imported.config === 'object') {
+            config = normalizeConfig(imported.config);
+            saveConfig();
+            uiState = normalizeImportedUiState(imported.uiState);
+            saveUiState();
+            villageTypeOverrides = normalizeImportedVillageTypes(imported.villageTypeOverrides);
+            saveVillageTypeOverrides();
+            applyImportedAutomateSettings(imported.automate);
+            return { full: true };
+        }
+        config = normalizeConfig(imported);
+        saveConfig();
+        return { full: false };
+    }
+
+    function resetAutomateSettings() {
+        ['msp_automate_bundle_minutes','msp_automate_max_raid_hours','msp_automate_stop_date','msp_automate_stop_time'].forEach(key => localStorage.removeItem(key));
+        AUTO.bundleWindowMs = 10 * 60000;
+        AUTO.maxRaidHours = 4;
+        AUTO.stopDeadlineAt = 0;
+    }
+
     function openSettingsModal() {
         document.getElementById(APP.modalId)?.remove();
-        const exportText = JSON.stringify(config, null, 2);
+        const exportText = JSON.stringify(buildFullSettingsExport(), null, 2);
 
         const modal = $(`
 <div id="${APP.modalId}">
@@ -2534,7 +2626,12 @@
         <div class="msp-modal-head"><span>Mass Scavenge+ Einstellungen</span><button class="msp-btn msp-btn-danger msp-btn-icon" id="mspModalClose">✕</button></div>
         <div class="msp-modal-body">
             <label style="display:block;margin-bottom:8px;"><input type="checkbox" id="mspRememberPosition" ${config.ui.rememberPosition ? 'checked' : ''}> Fensterposition merken</label>
-            <div style="font-weight:bold;margin-bottom:5px;">Konfiguration exportieren / importieren</div>
+            <div style="font-weight:bold;margin-bottom:5px;">Vollständige Konfiguration exportieren / importieren</div>
+            <div style="font-size:11px;margin:0 0 7px;padding:7px 8px;border:1px solid #c9ad72;border-radius:4px;background:#fff7df;">
+                Enthält Truppen, Reserven, Verteilung, Zeitsteuerung, beide Schnellbutton-Gruppen,
+                Bündelung, Maximaldauer je Raubzug, Autopilot-Ende, Dorf-Typen sowie UI-/Fenstereinstellungen.
+                <b>Nicht enthalten:</b> laufender Autopilot, Protokoll und Session-Historie.
+            </div>
             <textarea id="mspConfigText">${escapeHtml(exportText)}</textarea>
             <div class="msp-modal-actions">
                 <button class="msp-btn msp-btn-secondary" id="mspCopyConfig">In Zwischenablage kopieren</button>
@@ -2568,22 +2665,23 @@
         $('#mspCopyConfig').on('click', async () => {
             try {
                 await navigator.clipboard.writeText($('#mspConfigText').val());
-                notifySuccess('Konfiguration kopiert.');
+                notifySuccess('Vollständige Konfiguration kopiert.');
             } catch {
                 $('#mspConfigText')[0].select();
                 document.execCommand('copy');
-                notifySuccess('Konfiguration kopiert.');
+                notifySuccess('Vollständige Konfiguration kopiert.');
             }
         });
 
         $('#mspImportConfig').on('click', () => {
             try {
                 const imported = JSON.parse($('#mspConfigText').val());
-                config = normalizeConfig(imported);
-                saveConfig();
-                modal.remove();
-                renderApp();
-                notifySuccess('Konfiguration importiert.');
+                const result = importSettingsPayload(imported);
+                closeSettingsModal();
+                rerenderAfterSettingsImport();
+                notifySuccess(result.full
+                    ? 'Vollständige Konfiguration importiert.'
+                    : 'Alte Konfiguration importiert. Automate-Zusatzwerte blieben unverändert.');
             } catch (error) {
                 notifyError(`Import fehlgeschlagen: ${error.message}`);
             }
@@ -2595,15 +2693,16 @@
             localStorage.removeItem(APP.villageTypeStorageKey);
             localStorage.removeItem(APP.sessionStorageKey);
             localStorage.removeItem(APP.uiStorageKey);
-            uiState = { collapsed: {} };
+            resetAutomateSettings();
+            uiState = { collapsed: {}, compactDefaultsVersion: 271 };
             lastAnalysis = null;
             sessionHistory = [];
             villageTypeOverrides = {};
             config = defaultConfig();
             saveConfig();
-            modal.remove();
-            renderApp();
-            notifySuccess('Mass Scavenge+ wurde zurückgesetzt.');
+            closeSettingsModal();
+            rerenderAfterSettingsImport();
+            notifySuccess('Mass Scavenge+ wurde vollständig zurückgesetzt.');
         });
     }
 
