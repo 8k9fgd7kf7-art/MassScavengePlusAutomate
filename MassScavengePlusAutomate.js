@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.10
+// MassScavengePlusAutomate v1.3.11
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.10',
+        version: '1.3.11',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -1668,6 +1668,97 @@
     #${APP.id} #mspAutoStopQuickSettingsBtn { align-self:flex-end; }
 }
 
+
+/* v1.3.11 – Zeitsteuerung in der Höhe komprimiert */
+#${APP.id} #mspTimePanel .msp-panel-content {
+    padding:5px 7px !important;
+}
+#${APP.id} #mspTimePanel .msp-time-block {
+    padding:5px 6px !important;
+}
+#${APP.id} #mspTimePanel .msp-time-block + .msp-time-block {
+    margin-top:5px !important;
+}
+#${APP.id} #mspTimePanel .msp-time-topline {
+    display:flex !important;
+    align-items:center !important;
+    gap:16px !important;
+    margin:0 0 3px !important;
+    min-height:30px;
+}
+#${APP.id} #mspTimePanel .msp-time-block-title-inline {
+    margin:0 !important;
+    flex:0 0 auto;
+    white-space:nowrap;
+}
+#${APP.id} #mspTimePanel .msp-time-topline .msp-max-raid-runtime {
+    margin-left:auto !important;
+}
+#${APP.id} #mspTimePanel .msp-time-compact {
+    gap:8px !important;
+    margin-top:0 !important;
+    align-items:end !important;
+}
+#${APP.id} #mspTimePanel .msp-time-side {
+    gap:2px !important;
+}
+#${APP.id} #mspTimePanel .msp-time-side-title {
+    line-height:1.15 !important;
+    margin:0 !important;
+}
+#${APP.id} #mspTimePanel .msp-time-inputs {
+    gap:4px !important;
+}
+#${APP.id} #mspTimePanel .msp-time-copy-center {
+    gap:3px !important;
+    padding-bottom:0 !important;
+}
+#${APP.id} #mspTimePanel .msp-time-copy-center button {
+    padding-top:2px !important;
+    padding-bottom:2px !important;
+    min-height:0 !important;
+}
+#${APP.id} #mspTimePanel .msp-quick-unified {
+    margin-top:3px !important;
+    padding-top:0 !important;
+    border-top:0 !important;
+}
+#${APP.id} #mspTimePanel .msp-quick-unified-row {
+    align-items:center !important;
+    gap:4px !important;
+}
+#${APP.id} #mspTimePanel .msp-quick-inline-main {
+    gap:5px !important;
+}
+#${APP.id} #mspTimePanel .msp-quick-purpose-title {
+    line-height:1 !important;
+}
+#${APP.id} #mspTimePanel .msp-quick-preset,
+#${APP.id} #mspTimePanel .msp-auto-stop-preset {
+    padding-top:4px !important;
+    padding-bottom:4px !important;
+}
+#${APP.id} #mspTimePanel .msp-quick-personalize {
+    padding-top:4px !important;
+    padding-bottom:4px !important;
+}
+#${APP.id} #mspTimePanel .msp-auto-stop-compact-head {
+    min-height:30px;
+}
+#${APP.id} #mspTimePanel .msp-auto-stop-compact-head .msp-time-block-title {
+    margin:0 !important;
+}
+@media(max-width:760px){
+    #${APP.id} #mspTimePanel .msp-time-topline {
+        gap:7px !important;
+        align-items:flex-start !important;
+    }
+    #${APP.id} #mspTimePanel .msp-time-topline .msp-max-raid-runtime {
+        margin-left:0 !important;
+        flex:1 1 100%;
+    }
+}
+
 `;
 
         $('<style>', { id: APP.styleId }).text(css).appendTo(document.head);
@@ -1903,8 +1994,8 @@
             <div class="msp-panel-title">🕰️ Zeitsteuerung</div>
             <div class="msp-panel-content">
                 <div class="msp-time-block">
-                    <div class="msp-time-block-title">Raubzüge <span class="msp-info-hint" title="Lege Rückkehrzeit oder Laufzeit für Off- und Def-Dörfer fest.">ⓘ</span></div>
-                    <div class="msp-time-mode-row">
+                    <div class="msp-time-mode-row msp-time-topline">
+                        <span class="msp-time-block-title msp-time-block-title-inline">Raubzüge <span class="msp-info-hint" title="Lege Rückkehrzeit oder Laufzeit für Off- und Def-Dörfer fest.">ⓘ</span></span>
                         <label><input type="radio" name="mspTimeMode" value="return"> Rückkehrzeit</label>
                         <label><input type="radio" name="mspTimeMode" value="runtime"> Laufzeit in Stunden</label>
                         <label class="msp-max-raid-runtime" title="Harte Obergrenze: Kein einzelner neu gestarteter Raubzug darf länger laufen – unabhängig von Rückkehrzeit oder eingestellter Laufzeit.">
