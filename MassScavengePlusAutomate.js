@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.21
+// MassScavengePlusAutomate v1.3.22
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.21',
+        version: '1.3.22',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -4928,7 +4928,6 @@
         const units = {};
         const known = ['spear','sword','axe','archer','spy','light','marcher','heavy','ram','catapult','knight','snob'];
 
-        // Erst direkte Datenattribute/Textwerte versuchen.
         for (const unit of known) {
             let value = 0;
             const selectors = [
@@ -4962,64 +4961,6 @@
             }
 
             if (value > 0) units[unit] = value;
-        }
-
-        // W258: verfügbare Truppen stehen nicht als Zahl im DOM.
-        // Die vorhandene "Alle Truppen"-UI kennt sie aber und trägt sie lokal
-        // in die Eingabefelder ein. Diesen rein lokalen UI-Schritt nutzen wir
-        // kurz zum Auslesen und stellen danach die Eingaben wieder zurück.
-        if (!Object.keys(units).length) {
-            const table = root.querySelector('table.candidate-squad-widget');
-            const fillAll = table?.querySelector('a.fill-all');
-            const inputs = table ? [...table.querySelectorAll('input.unitsInput[name]')] : [];
-
-            if (fillAll && inputs.length) {
-                const snapshot = inputs.map(input => ({
-                    input,
-                    value: input.value
-                }));
-                const carryCell = table.querySelector('.carry-max');
-                const carryBefore = carryCell?.textContent ?? '';
-
-                try {
-                    if (window.jQuery) {
-                        window.jQuery(fillAll).trigger('click');
-                    } else {
-                        fillAll.dispatchEvent(new MouseEvent('click', {
-                            bubbles: true,
-                            cancelable: true,
-                            view: window
-                        }));
-                    }
-
-                    for (const input of inputs) {
-                        const unit = String(input.name || '').trim();
-                        if (!known.includes(unit)) continue;
-
-                        const n = autoNumberFromText(input.value);
-                        if (n > 0) units[unit] = n;
-                    }
-
-                    if (Object.keys(units).length) {
-                        autoLog(
-                            `  🪖 Truppen über lokalen „Alle Truppen“-Fallback gelesen · ` +
-                            Object.entries(units).map(([u, n]) => `${u} ${n}`).join(' · ')
-                        );
-                    }
-                } finally {
-                    for (const { input, value } of snapshot) {
-                        input.value = value;
-                        try {
-                            input.dispatchEvent(new Event('input', { bubbles: true }));
-                            input.dispatchEvent(new Event('change', { bubbles: true }));
-                        } catch (_) {}
-                    }
-
-                    if (carryCell && snapshot.every(x => !String(x.value || '').trim())) {
-                        carryCell.textContent = carryBefore;
-                    }
-                }
-            }
         }
 
         return units;
@@ -5089,6 +5030,140 @@
         } catch (error) {
             autoLog(`  ⚠️ Truppen-DOM-Diagnose fehlgeschlagen: ${error?.message || error}`);
         }
+    }
+
+
+    function autoSingleScavengeUrl() {
+        try {
+            const url = new URL(location.href);
+            url.searchParams.set('screen', 'place');
+            url.searchParams.set('mode', 'scavenge');
+            return url.pathname + '?' + url.searchParams.toString();
+        } catch (_) {
+            const villageId = autoCurrentVillageId();
+            return `game.php?village=${encodeURIComponent(villageId)}&screen=place&mode=scavenge`;
+        }
+    }
+
+    function autoParseSingleScavengePage(html) {
+        try {
+            const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+            const villageId = autoCurrentVillageId();
+            if (!villageId) return [];
+
+            const known = ['spear','sword','axe','archer','spy','light','marcher','heavy','ram','catapult','knight','snob'];
+            const unitCountsHome = {};
+
+            // Try common single-scavenge "all troops" links / counters.
+            for (const unit of known) {
+                let count = 0;
+
+                const candidates = [
+                    ...doc.querySelectorAll(`[data-unit="${unit}"]`),
+                    ...doc.querySelectorAll(`input[name="${unit}"]`)
+                ];
+
+                for (const el of candidates) {
+                    const vals = [
+                        el.getAttribute?.('data-all-count'),
+                        el.getAttribute?.('data-count'),
+                        el.getAttribute?.('data-home-count'),
+                        el.getAttribute?.('data-unit-count'),
+                        el.value,
+                        el.textContent
+                    ];
+
+                    for (const v of vals) {
+                        const n = autoNumberFromText(v);
+                        if (n > count) count = n;
+                    }
+                }
+
+                if (count > 0) unitCountsHome[unit] = count;
+            }
+
+            // Search script blocks for explicit troop/home-unit data if the DOM does not expose counts.
+            if (!Object.keys(unitCountsHome).length) {
+                const scripts = [...doc.scripts].map(s => s.textContent || '').join('\n');
+                for (const unit of known) {
+                    const patterns = [
+                        new RegExp(`["']${unit}["']\\s*:\\s*(\\d+)`, 'i'),
+                        new RegExp(`${unit}[^\\d]{0,30}(\\d+)`, 'i')
+                    ];
+                    for (const re of patterns) {
+                        const m = scripts.match(re);
+                        if (m) {
+                            const n = Number(m[1]);
+                            if (Number.isFinite(n) && n > 0) {
+                                unitCountsHome[unit] = n;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            const optionEls = [
+                ...doc.querySelectorAll('.scavenge-option'),
+                ...doc.querySelectorAll('[data-option-id]')
+            ];
+            const options = {};
+
+            if (optionEls.length) {
+                optionEls.forEach((el, idx) => {
+                    const optionId =
+                        Number(el.getAttribute('data-option-id') || 0) ||
+                        Number(el.dataset?.optionId || 0) ||
+                        idx + 1;
+                    if (!optionId || options[String(optionId)]) return;
+                    options[String(optionId)] = autoRenderedOptionState(el, optionId);
+                });
+            } else {
+                // If option cards are not directly present, at least derive the four
+                // known option slots from the single-scavenge page text.
+                for (let i = 1; i <= 4; i++) {
+                    options[String(i)] = {
+                        id: i,
+                        is_locked: false,
+                        scavenging_squad: null
+                    };
+                }
+            }
+
+            let villageName = '';
+            try {
+                villageName = String(game_data?.village?.name || '');
+            } catch (_) {}
+            if (!villageName) villageName = document.title || `Dorf ${villageId}`;
+
+            if (!Object.keys(unitCountsHome).length) {
+                autoLog('  ⚠️ Einzelraubzug-Fallback geladen, aber keine Truppenzahlen sicher erkannt.');
+                return [];
+            }
+
+            autoLog(
+                `  🧭 Einzelraubzug-Fallback aktiv · ${Object.keys(unitCountsHome).length} Truppentyp(en) erkannt · ` +
+                Object.entries(unitCountsHome).map(([u,n]) => `${u} ${n}`).join(' · ')
+            );
+
+            return [{
+                village_id: villageId,
+                village_name: villageName,
+                unit_counts_home: unitCountsHome,
+                options,
+                __msp_single_scavenge_fallback: true
+            }];
+        } catch (error) {
+            autoLog(`  ⚠️ Einzelraubzug-Fallback konnte nicht ausgewertet werden: ${error?.message || error}`);
+            return [];
+        }
+    }
+
+    async function loadSingleScavengeFallback() {
+        const url = autoSingleScavengeUrl();
+        autoLog(`  🧭 Lade Einzelraubzug-Seite als Fallback: ${url}`);
+        const html = await getHtml(url);
+        return autoParseSingleScavengePage(html);
     }
 
     function extractVillageFromRenderedDom() {
@@ -5207,12 +5282,21 @@
         }
 
         if (!all.length) {
+            try {
+                const singleFallback = await loadSingleScavengeFallback();
+                if (singleFallback.length) {
+                    return singleFallback;
+                }
+            } catch (error) {
+                autoLog(`  ⚠️ Einzelraubzug-Seite konnte nicht geladen werden: ${error?.message || error}`);
+            }
+
             const domFallback = extractVillagesFromRenderedDomFallback();
-            if (domFallback.length) {
+            if (domFallback.length && Object.keys(domFallback[0]?.unit_counts_home || {}).length) {
                 return domFallback;
             }
 
-            // Nur wenn auch der gerenderte DOM-Fallback nichts liefert, geben wir
+            // Nur wenn auch Einzelraubzug- und gerenderter DOM-Fallback nichts liefern, geben wir
             // die ausführliche Diagnose aus und stoppen weiter sicher.
             AUTO.runtimeDataDiagnosticsDone = false;
             autoLogRuntimeDataDiagnostics();
@@ -5233,7 +5317,7 @@
             }
 
             throw new Error(
-                'Keine verwertbaren Dorf-Datensätze gefunden – weder Serverparser noch Rendered-DOM-Fallback konnten sichere Daten lesen.'
+                'Keine verwertbaren Dorf-Datensätze gefunden – Serverparser, Einzelraubzug-Fallback und Rendered-DOM-Fallback konnten keine sicheren Daten lesen.'
             );
         }
 
