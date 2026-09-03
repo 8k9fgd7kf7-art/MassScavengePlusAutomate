@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.20
+// MassScavengePlusAutomate v1.3.21
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.20',
+        version: '1.3.21',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -4928,14 +4928,16 @@
         const units = {};
         const known = ['spear','sword','axe','archer','spy','light','marcher','heavy','ram','catapult','knight','snob'];
 
+        // Erst direkte Datenattribute/Textwerte versuchen.
         for (const unit of known) {
             let value = 0;
             const selectors = [
-                `[data-unit="${unit}"]`,
+                `[data-unit="${unit}"][data-all-count]`,
+                `[data-unit="${unit}"][data-count]`,
+                `[data-unit="${unit}"][data-home-count]`,
                 `.unit-item-${unit}`,
                 `.unit_${unit}`,
-                `#units_entry_all_${unit}`,
-                `input[name="${unit}"]`
+                `#units_entry_all_${unit}`
             ];
 
             for (const selector of selectors) {
@@ -4946,7 +4948,6 @@
                     el.getAttribute?.('data-all-count'),
                     el.getAttribute?.('data-count'),
                     el.getAttribute?.('data-home-count'),
-                    el.value,
                     el.textContent
                 ];
 
@@ -4963,26 +4964,60 @@
             if (value > 0) units[unit] = value;
         }
 
+        // W258: verfügbare Truppen stehen nicht als Zahl im DOM.
+        // Die vorhandene "Alle Truppen"-UI kennt sie aber und trägt sie lokal
+        // in die Eingabefelder ein. Diesen rein lokalen UI-Schritt nutzen wir
+        // kurz zum Auslesen und stellen danach die Eingaben wieder zurück.
         if (!Object.keys(units).length) {
-            const table = root.querySelector('table');
-            if (table) {
-                const headers = [...table.querySelectorAll('thead th')];
-                const unitByIndex = headers.map(th => {
-                    const html = `${th.className || ''} ${th.innerHTML || ''}`.toLowerCase();
-                    return known.find(unit => html.includes(unit)) || null;
-                });
+            const table = root.querySelector('table.candidate-squad-widget');
+            const fillAll = table?.querySelector('a.fill-all');
+            const inputs = table ? [...table.querySelectorAll('input.unitsInput[name]')] : [];
 
-                const row = [...table.querySelectorAll('tbody tr')].find(
-                    tr => /fill-all|squad-village|required/i.test(tr.innerHTML || '')
-                );
+            if (fillAll && inputs.length) {
+                const snapshot = inputs.map(input => ({
+                    input,
+                    value: input.value
+                }));
+                const carryCell = table.querySelector('.carry-max');
+                const carryBefore = carryCell?.textContent ?? '';
 
-                if (row) {
-                    const cells = [...row.children];
-                    unitByIndex.forEach((unit, idx) => {
-                        if (!unit || !cells[idx]) return;
-                        const n = autoNumberFromText(cells[idx].textContent);
+                try {
+                    if (window.jQuery) {
+                        window.jQuery(fillAll).trigger('click');
+                    } else {
+                        fillAll.dispatchEvent(new MouseEvent('click', {
+                            bubbles: true,
+                            cancelable: true,
+                            view: window
+                        }));
+                    }
+
+                    for (const input of inputs) {
+                        const unit = String(input.name || '').trim();
+                        if (!known.includes(unit)) continue;
+
+                        const n = autoNumberFromText(input.value);
                         if (n > 0) units[unit] = n;
-                    });
+                    }
+
+                    if (Object.keys(units).length) {
+                        autoLog(
+                            `  🪖 Truppen über lokalen „Alle Truppen“-Fallback gelesen · ` +
+                            Object.entries(units).map(([u, n]) => `${u} ${n}`).join(' · ')
+                        );
+                    }
+                } finally {
+                    for (const { input, value } of snapshot) {
+                        input.value = value;
+                        try {
+                            input.dispatchEvent(new Event('input', { bubbles: true }));
+                            input.dispatchEvent(new Event('change', { bubbles: true }));
+                        } catch (_) {}
+                    }
+
+                    if (carryCell && snapshot.every(x => !String(x.value || '').trim())) {
+                        carryCell.textContent = carryBefore;
+                    }
                 }
             }
         }
