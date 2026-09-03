@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.12
+// MassScavengePlusAutomate v1.3.13
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.12',
+        version: '1.3.13',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -4233,12 +4233,7 @@
 
     function getHtml(url) {
         return new Promise((resolve, reject) => {
-            // v1.3.12: Cache-Buster erzwingt bei jedem Zyklus wirklich frische
-            // Massenraubzug-Daten. Dadurch werden auch während des laufenden
-            // Autopiloten neu freigeschaltete Sammelkategorien sofort erkannt.
-            const separator = String(url).includes('?') ? '&' : '?';
-            const freshUrl = `${url}${separator}_mspfresh=${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
-            $.get(freshUrl)
+            $.get(url)
                 .done(resolve)
                 .fail(xhr => reject(new Error(`HTTP-Fehler beim Laden (${xhr.status || 'unbekannt'}).`)));
         });
@@ -5648,7 +5643,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
             AUTO.cycles++;
             autoUpdateStatus('prüft …');
-            autoLog(`Zyklus ${AUTO.cycles} · Check gestartet · Sammeldaten werden frisch und cachefrei eingelesen.`);
+            autoLog(`Zyklus ${AUTO.cycles} · Check gestartet · Sammeldaten werden frisch eingelesen.`);
 
             let villages = await loadAllVillagePages();
             autoRefreshOptionUnlockState(villages);
