@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.27
+// MassScavengePlusAutomate v1.3.28
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.27',
+        version: '1.3.28',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -1757,6 +1757,19 @@
         margin-left:0 !important;
         flex:1 1 100%;
     }
+}
+
+
+/* v1.3.28 SingleScroll
+   Nur der Inhaltsbereich scrollt. Der äußere Script-Container bleibt fest. */
+#${APP.id} {
+    overflow: hidden !important;
+}
+#${APP.id} .msp-body {
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    min-height: 0 !important;
+    scrollbar-gutter: stable;
 }
 
 `;
