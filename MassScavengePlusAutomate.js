@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.14
+// MassScavengePlusAutomate v1.3.15
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.14',
+        version: '1.3.15',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -4240,6 +4240,95 @@
         });
     }
 
+
+    function currentDocumentHtml() {
+        try {
+            return document?.documentElement?.outerHTML || '';
+        } catch (_) {
+            return '';
+        }
+    }
+
+    function diagnoseScavengeHtml(html, sourceLabel) {
+        let scriptText = '';
+        try {
+            scriptText = scavengeScriptTextFromHtml(html);
+        } catch (_) {
+            scriptText = '';
+        }
+
+        const full = String(html || '');
+        const script = String(scriptText || '');
+        const signals = {
+            source: sourceLabel,
+            htmlLength: full.length,
+            scriptLength: script.length,
+            unitCountsHome: (script.match(/["']unit_counts_home["']/g) || []).length,
+            villageId: (script.match(/["']village_id["']/g) || []).length,
+            options: (script.match(/["']options["']/g) || []).length,
+            scavengingSquad: (script.match(/["']scavenging_squad["']/g) || []).length,
+            optionId: (script.match(/["']option_id["']/g) || []).length,
+            ScavengeMassScreen: (full.match(/ScavengeMassScreen/g) || []).length,
+            scavenge_api: (full.match(/scavenge_api/g) || []).length,
+        };
+
+        autoLog(
+            `  🔎 Diagnose ${sourceLabel}: HTML ${signals.htmlLength} Zeichen · ` +
+            `Script ${signals.scriptLength} · unit_counts_home ${signals.unitCountsHome} · ` +
+            `village_id ${signals.villageId} · options ${signals.options} · ` +
+            `scavenging_squad ${signals.scavengingSquad} · option_id ${signals.optionId} · ` +
+            `ScavengeMassScreen ${signals.ScavengeMassScreen}`
+        );
+
+        return signals;
+    }
+
+    function tryExtractVillagesWithBrowserFallback(fetchedHtml, pageIndex, pageTotal) {
+        let villages = [];
+
+        try {
+            villages = extractVillagesFromHtml(fetchedHtml) || [];
+        } catch (_) {
+            villages = [];
+        }
+
+        if (villages.length) {
+            return { villages, source: 'fetch' };
+        }
+
+        // Nur für die aktuell geöffnete erste Sammelseite ist ein Browser-DOM-Fallback sinnvoll.
+        if (pageIndex === 0) {
+            const browserHtml = currentDocumentHtml();
+            if (browserHtml) {
+                let browserVillages = [];
+                try {
+                    browserVillages = extractVillagesFromHtml(browserHtml) || [];
+                } catch (_) {
+                    browserVillages = [];
+                }
+
+                if (browserVillages.length) {
+                    autoLog(
+                        `  🧭 Browser-Fallback aktiv: ${browserVillages.length} Dorf/Dörfer ` +
+                        `direkt aus der geöffneten Sammelseite gelesen.`
+                    );
+                    return { villages: browserVillages, source: 'browser' };
+                }
+
+                // Wenn auch der DOM-Fallback nichts findet, beide Quellen diagnostizieren.
+                diagnoseScavengeHtml(fetchedHtml, `Fetch Seite ${pageIndex + 1}/${pageTotal}`);
+                diagnoseScavengeHtml(browserHtml, 'Browser-DOM');
+            } else {
+                diagnoseScavengeHtml(fetchedHtml, `Fetch Seite ${pageIndex + 1}/${pageTotal}`);
+                autoLog('  🔎 Diagnose Browser-DOM: document.documentElement.outerHTML war leer.');
+            }
+        } else {
+            diagnoseScavengeHtml(fetchedHtml, `Fetch Seite ${pageIndex + 1}/${pageTotal}`);
+        }
+
+        return { villages: [], source: 'none' };
+    }
+
     async function loadAllVillagePages() {
         const baseUrl = baseMassUrl();
         setProgress(3, 'Sammelseite wird vorbereitet …');
@@ -4260,7 +4349,8 @@
 
         for (let i = 0; i < urls.length; i++) {
             const html = i === 0 ? firstHtml : await getHtml(urls[i]);
-            const pageVillages = extractVillagesFromHtml(html);
+            const extracted = tryExtractVillagesWithBrowserFallback(html, i, urls.length);
+            const pageVillages = extracted.villages || [];
 
             if (!pageVillages.length) {
                 emptyPages++;
@@ -4280,13 +4370,10 @@
         }
 
         if (!all.length) {
-            // Hier ist wirklich die komplette Antwort ohne Dorf-Daten. Dann lieber
-            // weiterhin sicher stoppen statt mit einem leeren/unklaren Plan zu senden.
-            const scriptText = scavengeScriptTextFromHtml(firstHtml);
-            const unitAnchors = (scriptText.match(/["']unit_counts_home["']/g) || []).length;
+            // Auch Browser-Fallback ohne verwertbare Dorf-Daten: sicher stoppen.
             throw new Error(
-                `Auf allen ${urls.length} Sammelseite(n) wurden keine Dorf-Datensätze erkannt ` +
-                `(unit_counts_home-Anker: ${unitAnchors}).`
+                `Weder Fetch noch Browser-DOM lieferten verwertbare Dorf-Datensätze. ` +
+                `Bitte die unmittelbar davor ausgegebenen 🔎 Diagnose-Zeilen schicken.`
             );
         }
 
