@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.18
+// MassScavengePlusAutomate v1.3.19
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.18',
+        version: '1.3.19',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -4865,6 +4865,196 @@
         }
     }
 
+
+    function autoNumberFromText(value) {
+        const cleaned = String(value ?? '').replace(/[^\d-]/g, '');
+        const parsed = parseInt(cleaned, 10);
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    function autoCurrentVillageId() {
+        try {
+            const direct = Number(game_data?.village?.id || 0);
+            if (direct) return direct;
+        } catch (_) {}
+
+        try {
+            const params = new URLSearchParams(location.search);
+            const fromUrl = Number(params.get('village') || 0);
+            if (fromUrl) return fromUrl;
+        } catch (_) {}
+
+        return 0;
+    }
+
+    function autoRenderedOptionState(optionEl, optionId) {
+        const text = String(optionEl?.innerText || optionEl?.textContent || '').toLowerCase();
+        const classText = String(optionEl?.className || '').toLowerCase();
+
+        const isLocked =
+            classText.includes('locked') ||
+            text.includes('freischalten') ||
+            text.includes('noch nicht verfügbar') ||
+            text.includes('gesperrt');
+
+        const isRunning =
+            classText.includes('active') ||
+            classText.includes('running') ||
+            !!optionEl?.querySelector('.return-countdown, .scavenge-option-return-countdown, .timer, [data-endtime], [data-end-time]') ||
+            /rückkehr|zurück in|endet in|unterwegs/.test(text);
+
+        let returnAt = null;
+        const timed = optionEl?.querySelector('[data-endtime], [data-end-time], [data-return-time], .return-countdown, .timer');
+        if (timed) {
+            const raw =
+                timed.getAttribute('data-endtime') ||
+                timed.getAttribute('data-end-time') ||
+                timed.getAttribute('data-return-time') ||
+                '';
+            const n = Number(raw);
+            if (Number.isFinite(n) && n > 0) {
+                returnAt = n > 10_000_000_000 ? n : n * 1000;
+            }
+        }
+
+        return {
+            id: optionId,
+            is_locked: isLocked,
+            scavenging_squad: isRunning ? { return_time: returnAt } : null
+        };
+    }
+
+    function autoRenderedHomeUnits(root) {
+        const units = {};
+        const known = ['spear','sword','axe','archer','spy','light','marcher','heavy','ram','catapult','knight','snob'];
+
+        for (const unit of known) {
+            let value = 0;
+            const selectors = [
+                `[data-unit="${unit}"]`,
+                `.unit-item-${unit}`,
+                `.unit_${unit}`,
+                `#units_entry_all_${unit}`,
+                `input[name="${unit}"]`
+            ];
+
+            for (const selector of selectors) {
+                const el = root.querySelector(selector);
+                if (!el) continue;
+
+                const candidates = [
+                    el.getAttribute?.('data-all-count'),
+                    el.getAttribute?.('data-count'),
+                    el.getAttribute?.('data-home-count'),
+                    el.value,
+                    el.textContent
+                ];
+
+                for (const candidate of candidates) {
+                    const n = autoNumberFromText(candidate);
+                    if (n > 0) {
+                        value = n;
+                        break;
+                    }
+                }
+                if (value > 0) break;
+            }
+
+            if (value > 0) units[unit] = value;
+        }
+
+        if (!Object.keys(units).length) {
+            const table = root.querySelector('table');
+            if (table) {
+                const headers = [...table.querySelectorAll('thead th')];
+                const unitByIndex = headers.map(th => {
+                    const html = `${th.className || ''} ${th.innerHTML || ''}`.toLowerCase();
+                    return known.find(unit => html.includes(unit)) || null;
+                });
+
+                const row = [...table.querySelectorAll('tbody tr')].find(
+                    tr => /fill-all|squad-village|required/i.test(tr.innerHTML || '')
+                );
+
+                if (row) {
+                    const cells = [...row.children];
+                    unitByIndex.forEach((unit, idx) => {
+                        if (!unit || !cells[idx]) return;
+                        const n = autoNumberFromText(cells[idx].textContent);
+                        if (n > 0) units[unit] = n;
+                    });
+                }
+            }
+        }
+
+        return units;
+    }
+
+    function extractVillageFromRenderedDom() {
+        const villageId = autoCurrentVillageId();
+        if (!villageId) return null;
+
+        const pageRoot =
+            document.querySelector('#content_value') ||
+            document.querySelector('#contentContainer') ||
+            document.body;
+
+        const optionsContainer = pageRoot.querySelector('.options-container');
+        if (!optionsContainer) return null;
+
+        const optionEls = [...optionsContainer.querySelectorAll('.scavenge-option')];
+        if (!optionEls.length) return null;
+
+        const options = {};
+        optionEls.forEach((el, idx) => {
+            const optionId =
+                Number(el.getAttribute('data-option-id') || 0) ||
+                Number(el.dataset?.optionId || 0) ||
+                idx + 1;
+
+            options[String(optionId)] = autoRenderedOptionState(el, optionId);
+        });
+
+        const unitCountsHome = autoRenderedHomeUnits(pageRoot);
+
+        let villageName = '';
+        try {
+            villageName = String(game_data?.village?.name || '');
+        } catch (_) {}
+
+        if (!villageName) {
+            villageName =
+                document.querySelector('#menu_row2 b')?.textContent?.trim() ||
+                document.title ||
+                `Dorf ${villageId}`;
+        }
+
+        return {
+            village_id: villageId,
+            village_name: villageName,
+            unit_counts_home: unitCountsHome,
+            options,
+            __msp_rendered_dom_fallback: true
+        };
+    }
+
+    function extractVillagesFromRenderedDomFallback() {
+        const village = extractVillageFromRenderedDom();
+        if (!village) return [];
+
+        const optionCount = Object.keys(village.options || {}).length;
+        const unitTypes = Object.keys(village.unit_counts_home || {}).length;
+
+        if (!optionCount) return [];
+
+        autoLog(
+            `  🧯 Rendered-DOM-Fallback aktiv · Dorf ${village.village_name} · ` +
+            `${optionCount} Kategorie(n) · ${unitTypes} Truppentyp(en) erkannt.`
+        );
+
+        return [village];
+    }
+
     function getHtml(url) {
         return new Promise((resolve, reject) => {
             $.get(url)
@@ -4913,11 +5103,15 @@
         }
 
         if (!all.length) {
-            // v1.3.16: Zusätzlich zum Netzwerk-Mitschnitt prüfen wir den aktuell
-            // geladenen Browser-Kontext auf bereits initialisierte Scavenge-/Village-Daten.
+            const domFallback = extractVillagesFromRenderedDomFallback();
+            if (domFallback.length) {
+                return domFallback;
+            }
+
+            // Nur wenn auch der gerenderte DOM-Fallback nichts liefert, geben wir
+            // die ausführliche Diagnose aus und stoppen weiter sicher.
             AUTO.runtimeDataDiagnosticsDone = false;
             autoLogRuntimeDataDiagnostics();
-        autoLogWorldStructureComparison();
             autoLogScavengeConstructorDiagnostics();
             autoLogWorldStructureComparison();
 
@@ -4935,7 +5129,7 @@
             }
 
             throw new Error(
-                'Keine verwertbaren Dorf-Datensätze gefunden. Bitte die unmittelbar davor ausgegebenen 🌐/🧪 Diagnose-Zeilen schicken.'
+                'Keine verwertbaren Dorf-Datensätze gefunden – weder Serverparser noch Rendered-DOM-Fallback konnten sichere Daten lesen.'
             );
         }
 
