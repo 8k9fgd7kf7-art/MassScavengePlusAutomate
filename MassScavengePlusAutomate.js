@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.19
+// MassScavengePlusAutomate v1.3.20
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.19',
+        version: '1.3.20',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -4990,6 +4990,72 @@
         return units;
     }
 
+
+    function autoLogTroopDomDiagnostics(root) {
+        try {
+            autoLog('  🪖 Truppen-DOM-Diagnose: relevante Tabellen-/Input-Struktur wird ausgegeben.');
+
+            const allTruppenLink = [...root.querySelectorAll('a,button,span,td')]
+                .find(el => String(el.textContent || '').trim().toLowerCase() === 'alle truppen');
+
+            if (allTruppenLink) {
+                const row = allTruppenLink.closest('tr') || allTruppenLink.parentElement;
+                if (row) {
+                    autoLog(`     🪖 Zeile „Alle Truppen“: ${autoDiagnosticPreview(row.outerHTML || '', 1800)}`);
+
+                    const inputs = [...row.querySelectorAll('input,select,button')];
+                    if (inputs.length) {
+                        autoLog(`     🪖 ${inputs.length} Eingabe-/Steuerelement(e) in dieser Zeile:`);
+                        inputs.slice(0, 20).forEach((el, idx) => {
+                            const attrs = [...el.attributes]
+                                .map(a => `${a.name}="${a.value}"`)
+                                .join(' ');
+                            autoLog(
+                                `       #${idx + 1} <${el.tagName.toLowerCase()}> ${attrs} · ` +
+                                `value="${String(el.value ?? '')}" · text="${String(el.textContent || '').trim()}"`
+                            );
+                        });
+                    }
+
+                    const table = row.closest('table');
+                    if (table) {
+                        const headers = [...table.querySelectorAll('thead th')];
+                        if (headers.length) {
+                            autoLog(`     🪖 Tabellenüberschriften (${headers.length}):`);
+                            headers.forEach((th, idx) => {
+                                const attrs = [...th.attributes]
+                                    .map(a => `${a.name}="${a.value}"`)
+                                    .join(' ');
+                                autoLog(
+                                    `       H${idx + 1} ${attrs} · text="${String(th.textContent || '').trim()}" · ` +
+                                    `html="${autoDiagnosticPreview(th.innerHTML || '', 350)}"`
+                                );
+                            });
+                        }
+
+                        autoLog(`     🪖 Tabellen-HTML: ${autoDiagnosticPreview(table.outerHTML || '', 2600)}`);
+                    }
+                }
+            } else {
+                autoLog('     🪖 „Alle Truppen“ wurde im aktuellen DOM nicht gefunden.');
+            }
+
+            const unitish = [...root.querySelectorAll('[data-unit], input[name], .unit-item, [class*="unit_"], [id*="unit"], [class*="squad"]')];
+            autoLog(`     🪖 ${unitish.length} potenziell truppenbezogene Elemente gefunden.`);
+            unitish.slice(0, 30).forEach((el, idx) => {
+                const attrs = [...el.attributes]
+                    .map(a => `${a.name}="${a.value}"`)
+                    .join(' ');
+                autoLog(
+                    `       U${idx + 1} <${el.tagName.toLowerCase()}> ${attrs} · ` +
+                    `value="${String(el.value ?? '')}" · text="${autoDiagnosticPreview(String(el.textContent || '').trim(), 180)}"`
+                );
+            });
+        } catch (error) {
+            autoLog(`  ⚠️ Truppen-DOM-Diagnose fehlgeschlagen: ${error?.message || error}`);
+        }
+    }
+
     function extractVillageFromRenderedDom() {
         const villageId = autoCurrentVillageId();
         if (!villageId) return null;
@@ -5016,6 +5082,9 @@
         });
 
         const unitCountsHome = autoRenderedHomeUnits(pageRoot);
+        if (!Object.keys(unitCountsHome).length) {
+            autoLogTroopDomDiagnostics(pageRoot);
+        }
 
         let villageName = '';
         try {
