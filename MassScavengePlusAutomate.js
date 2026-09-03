@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.22
+// MassScavengePlusAutomate v1.3.23
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.22',
+        version: '1.3.23',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -5082,13 +5082,14 @@
                 if (count > 0) unitCountsHome[unit] = count;
             }
 
-            // Search script blocks for explicit troop/home-unit data if the DOM does not expose counts.
+            // Search script blocks only for explicit object-style unit counts.
+            // Broad "unit ... number" matching caused false positives such as knight 1321.
             if (!Object.keys(unitCountsHome).length) {
                 const scripts = [...doc.scripts].map(s => s.textContent || '').join('\n');
                 for (const unit of known) {
                     const patterns = [
                         new RegExp(`["']${unit}["']\\s*:\\s*(\\d+)`, 'i'),
-                        new RegExp(`${unit}[^\\d]{0,30}(\\d+)`, 'i')
+                        new RegExp(`["']${unit}["']\\s*:\\s*\\{[^}]*["'](?:count|home|available)["']\\s*:\\s*(\\d+)`, 'i')
                     ];
                     for (const re of patterns) {
                         const m = scripts.match(re);
@@ -5142,7 +5143,7 @@
             }
 
             autoLog(
-                `  🧭 Einzelraubzug-Fallback aktiv · ${Object.keys(unitCountsHome).length} Truppentyp(en) erkannt · ` +
+                `  🧭 Einzelraubzug-Fallback aktiv · Planerdaten vollständig · ${Object.keys(unitCountsHome).length} Truppentyp(en) erkannt · ` +
                 Object.entries(unitCountsHome).map(([u,n]) => `${u} ${n}`).join(' · ')
             );
 
@@ -5150,6 +5151,8 @@
                 village_id: villageId,
                 village_name: villageName,
                 unit_counts_home: unitCountsHome,
+                has_rally_point: true,
+                unit_carry_factor: 1,
                 options,
                 __msp_single_scavenge_fallback: true
             }];
@@ -5212,6 +5215,8 @@
             village_id: villageId,
             village_name: villageName,
             unit_counts_home: unitCountsHome,
+            has_rally_point: true,
+            unit_carry_factor: 1,
             options,
             __msp_rendered_dom_fallback: true
         };
