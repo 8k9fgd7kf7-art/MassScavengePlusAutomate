@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.13
+// MassScavengePlusAutomate v1.3.14
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.13',
+        version: '1.3.14',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -1892,9 +1892,10 @@
             }
         }
 
-        if (!villages.length) {
-            throw new Error('Auf dieser Sammelseite wurden keine Dorf-Datensätze erkannt.');
-        }
+        // Eine einzelne paginierte Sammelseite kann leer sein (z. B. wenn sich
+        // die sichtbaren Datensätze während laufender Raubzüge verschieben).
+        // Das ist kein Grund, den gesamten Autopiloten zu stoppen. Ob insgesamt
+        // Dorf-Daten vorhanden sind, prüft loadAllVillagePages() nach allen Seiten.
         return villages;
     }
 
@@ -4254,15 +4255,43 @@
         const maxPage = extractPageCount(firstHtml);
         const urls = Array.from({ length: maxPage + 1 }, (_, page) => `${baseUrl}&page=${page}`);
         const all = [];
+        const seenVillageIds = new Set();
+        let emptyPages = 0;
 
         for (let i = 0; i < urls.length; i++) {
             const html = i === 0 ? firstHtml : await getHtml(urls[i]);
             const pageVillages = extractVillagesFromHtml(html);
-            all.push(...pageVillages);
+
+            if (!pageVillages.length) {
+                emptyPages++;
+                autoLog(`  ↪ Sammelseite ${i + 1}/${urls.length} enthält aktuell keine Dorf-Datensätze · wird übersprungen.`);
+            } else {
+                for (const village of pageVillages) {
+                    const id = String(village?.village_id ?? '');
+                    if (!id || seenVillageIds.has(id)) continue;
+                    seenVillageIds.add(id);
+                    all.push(village);
+                }
+            }
 
             const progress = 5 + ((i + 1) / urls.length) * 55;
             setProgress(progress, `Dörfer laden: Seite ${i + 1} von ${urls.length} …`);
             if (i < urls.length - 1) await wait(APP.requestDelayMs);
+        }
+
+        if (!all.length) {
+            // Hier ist wirklich die komplette Antwort ohne Dorf-Daten. Dann lieber
+            // weiterhin sicher stoppen statt mit einem leeren/unklaren Plan zu senden.
+            const scriptText = scavengeScriptTextFromHtml(firstHtml);
+            const unitAnchors = (scriptText.match(/["']unit_counts_home["']/g) || []).length;
+            throw new Error(
+                `Auf allen ${urls.length} Sammelseite(n) wurden keine Dorf-Datensätze erkannt ` +
+                `(unit_counts_home-Anker: ${unitAnchors}).`
+            );
+        }
+
+        if (emptyPages > 0) {
+            autoLog(`  ✓ ${all.length} Dorf/Dörfer geladen · ${emptyPages} leere Sammelseite(n) sicher ignoriert.`);
         }
 
         return all;
