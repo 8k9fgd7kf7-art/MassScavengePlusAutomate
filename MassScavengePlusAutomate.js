@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.15
+// MassScavengePlusAutomate v1.3.16
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.15',
+        version: '1.3.16',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -4270,7 +4270,8 @@
             if (autoShouldLogNetworkUrl(item.url)) {
                 const status = item.status !== '' ? ` · ${item.status}` : '';
                 const body = item.body ? ` · body: ${item.body}` : '';
-                autoLog(`  🌐 ${item.type} ${item.method}${status} · ${item.url}${body}`);
+                const response = item.response ? ` · response: ${item.response}` : '';
+                autoLog(`  🌐 ${item.type} ${item.method}${status} · ${item.url}${body}${response}`);
             }
         } catch (_) {}
     }
@@ -4418,6 +4419,159 @@
         autoLog('  🧪 Netzwerk-Diagnose aktiv: relevante fetch/XHR/jQuery-Aufrufe werden mitgeschrieben.');
     }
 
+
+    function autoDescribeValue(value) {
+        try {
+            if (value == null) return 'null';
+            if (Array.isArray(value)) return `Array(${value.length})`;
+            if (typeof value === 'object') {
+                const keys = Object.keys(value);
+                return `Object{${keys.slice(0, 8).join(',')}${keys.length > 8 ? ',…' : ''}}`;
+            }
+            return `${typeof value}:${autoDiagnosticPreview(value, 120)}`;
+        } catch (_) {
+            return typeof value;
+        }
+    }
+
+    function autoObjectContainsScavengeData(value, depth = 0, seen = new WeakSet()) {
+        try {
+            if (value == null || depth > 4) return false;
+            if (typeof value !== 'object') return false;
+            if (seen.has(value)) return false;
+            seen.add(value);
+
+            const keys = Object.keys(value);
+            const keyText = keys.join(' ').toLowerCase();
+            if (
+                keyText.includes('unit_counts_home') ||
+                keyText.includes('scavenging_squad') ||
+                keyText.includes('option_id') ||
+                keyText.includes('scavenge') ||
+                keyText.includes('scavenging')
+            ) return true;
+
+            for (const key of keys.slice(0, 60)) {
+                let child;
+                try { child = value[key]; } catch (_) { continue; }
+                if (child && typeof child === 'object') {
+                    if (autoObjectContainsScavengeData(child, depth + 1, seen)) return true;
+                }
+            }
+        } catch (_) {}
+        return false;
+    }
+
+    function autoCollectRuntimeScavengeCandidates() {
+        const candidates = [];
+        const seen = new Set();
+
+        const addCandidate = (name, value, source) => {
+            try {
+                if (value == null) return;
+                const key = `${source}:${name}`;
+                if (seen.has(key)) return;
+                seen.add(key);
+
+                const useful = autoObjectContainsScavengeData(value);
+                if (!useful) return;
+
+                candidates.push({
+                    source,
+                    name,
+                    description: autoDescribeValue(value),
+                    preview: autoDiagnosticPreview(value, 500)
+                });
+            } catch (_) {}
+        };
+
+        // Known/likely globals first.
+        const likelyGlobals = [
+            'ScavengeMassScreen',
+            'ScavengeScreen',
+            'Scavenge',
+            'TribalWars',
+            'game_data',
+            'UI',
+            'VillageContext',
+            'Timing'
+        ];
+
+        for (const name of likelyGlobals) {
+            try {
+                if (name in window) addCandidate(name, window[name], 'window');
+            } catch (_) {}
+        }
+
+        // Inspect enumerable window globals cautiously.
+        let names = [];
+        try { names = Object.keys(window); } catch (_) {}
+        for (const name of names) {
+            if (candidates.length >= 30) break;
+            if (!/scaven|village|squad|option|place|mass/i.test(name)) continue;
+            try { addCandidate(name, window[name], 'window'); } catch (_) {}
+        }
+
+        // jQuery data attached to likely containers can contain initialized view/model data.
+        try {
+            if (window.jQuery) {
+                const selectors = [
+                    '#scavenge_mass_screen',
+                    '#scavenge_screen',
+                    '#content_value',
+                    '#contentContainer',
+                    'body'
+                ];
+                for (const selector of selectors) {
+                    const el = document.querySelector(selector);
+                    if (!el) continue;
+                    const data = $(el).data();
+                    addCandidate(selector, data, 'jquery.data');
+                }
+            }
+        } catch (_) {}
+
+        // Inline script tags, but inspect all script text instead of only the old parser target.
+        try {
+            const scripts = [...document.scripts];
+            scripts.forEach((script, index) => {
+                const t = script.textContent || '';
+                if (!/scaven|unit_counts_home|scavenging_squad|option_id/i.test(t)) return;
+                candidates.push({
+                    source: 'script',
+                    name: `script[${index}]`,
+                    description: `${t.length} Zeichen`,
+                    preview: autoDiagnosticPreview(t, 700)
+                });
+            });
+        } catch (_) {}
+
+        return candidates;
+    }
+
+    function autoLogRuntimeDataDiagnostics() {
+        if (AUTO.runtimeDataDiagnosticsDone) return;
+        AUTO.runtimeDataDiagnosticsDone = true;
+
+        autoLog('  🧬 Runtime-Diagnose: Suche nach bereits geladenen Sammel-/Dorf-Daten im Browser-Kontext …');
+
+        const candidates = autoCollectRuntimeScavengeCandidates();
+
+        if (!candidates.length) {
+            autoLog('  🧬 Keine verwertbaren Runtime-Kandidaten mit Scavenge-/Village-Strukturen gefunden.');
+            return;
+        }
+
+        autoLog(`  🧬 ${candidates.length} möglicher Runtime-Kandidat(en) gefunden:`);
+        for (const item of candidates.slice(0, 20)) {
+            autoLog(`     ${item.source} · ${item.name} · ${item.description}`);
+            if (item.preview) autoLog(`       ↳ ${item.preview}`);
+        }
+        if (candidates.length > 20) {
+            autoLog(`     … ${candidates.length - 20} weitere Kandidaten ausgeblendet.`);
+        }
+    }
+
     function getHtml(url) {
         return new Promise((resolve, reject) => {
             $.get(url)
@@ -4466,16 +4620,19 @@
         }
 
         if (!all.length) {
-            // v1.3.15: Bevor wir sicher stoppen, geben wir die zuletzt beobachteten
-            // relevanten Netzwerk-Aufrufe aus. Damit lässt sich erkennen, über welchen
-            // Endpoint Stämme die eigentlichen Sammel-Daten nachlädt.
+            // v1.3.16: Zusätzlich zum Netzwerk-Mitschnitt prüfen wir den aktuell
+            // geladenen Browser-Kontext auf bereits initialisierte Scavenge-/Village-Daten.
+            AUTO.runtimeDataDiagnosticsDone = false;
+            autoLogRuntimeDataDiagnostics();
+
             const recent = (AUTO.networkDiagnostics || []).slice(-12);
             if (recent.length) {
                 autoLog('  🧪 Letzte relevante Netzwerk-Aufrufe:');
                 for (const item of recent) {
                     const status = item.status !== '' ? ` · ${item.status}` : '';
                     const body = item.body ? ` · body: ${item.body}` : '';
-                    autoLog(`     ${item.type} ${item.method}${status} · ${item.url}${body}`);
+                    const response = item.response ? ` · response: ${item.response}` : '';
+                    autoLog(`     ${item.type} ${item.method}${status} · ${item.url}${body}${response}`);
                 }
             } else {
                 autoLog('  🧪 Noch keine relevanten fetch/XHR/jQuery-Aufrufe beobachtet.');
@@ -5192,7 +5349,8 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         runtimeRejected: 0,
         optionLockState: new Map(),
         networkDiagnosticsInstalled: false,
-        networkDiagnostics: []
+        networkDiagnostics: [],
+        runtimeDataDiagnosticsDone: false
     };
 
 
@@ -6412,6 +6570,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
     function initAutomateSimulation() {
         installNetworkDiagnostics();
+        autoLogRuntimeDataDiagnostics();
         const root = $(`#${APP.id}`);
         if (!root.length || $('#mspAutoPanel').length) return;
 
