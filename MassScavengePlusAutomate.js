@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.17
+// MassScavengePlusAutomate v1.3.18
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.17',
+        version: '1.3.18',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -4760,6 +4760,111 @@
         }
     }
 
+
+    function autoContextSnippets(source, pattern, radius = 220, maxMatches = 6) {
+        const out = [];
+        try {
+            const re = new RegExp(pattern, 'gi');
+            let match;
+            while ((match = re.exec(source)) && out.length < maxMatches) {
+                const start = Math.max(0, match.index - radius);
+                const end = Math.min(source.length, match.index + match[0].length + radius);
+                out.push({
+                    index: match.index,
+                    snippet: autoDiagnosticPreview(source.slice(start, end), radius * 2 + 80)
+                });
+                if (match.index === re.lastIndex) re.lastIndex++;
+            }
+        } catch (_) {}
+        return out;
+    }
+
+    function autoLogWorldStructureComparison() {
+        try {
+            autoLog('  🧪 Strukturvergleich: relevante Script-/HTML-Muster der aktuellen Welt …');
+
+            const scripts = [...document.scripts];
+            const patterns = [
+                ['ScavengeMassScreen', 'ScavengeMassScreen'],
+                ['village_id', 'village_id'],
+                ['unit_counts', 'unit_counts'],
+                ['options', '\\boptions\\b'],
+                ['scavenging_squad', 'scavenging_squad'],
+                ['option_id', 'option_id']
+            ];
+
+            const relevantScripts = [];
+            scripts.forEach((script, scriptIndex) => {
+                const t = script.textContent || '';
+                const counts = {};
+                let total = 0;
+
+                for (const [label, pattern] of patterns) {
+                    const re = new RegExp(pattern, 'gi');
+                    const matches = t.match(re);
+                    const count = matches ? matches.length : 0;
+                    counts[label] = count;
+                    total += count;
+                }
+
+                if (total > 0) {
+                    relevantScripts.push({
+                        scriptIndex,
+                        length: t.length,
+                        counts,
+                        text: t
+                    });
+                }
+            });
+
+            autoLog(`  🧪 ${relevantScripts.length} relevanter Script-Block/Blöcke gefunden.`);
+
+            for (const item of relevantScripts) {
+                const c = item.counts;
+                autoLog(
+                    `     script[${item.scriptIndex}] · ${item.length} Zeichen · ` +
+                    `ScavengeMassScreen ${c.ScavengeMassScreen} · village_id ${c.village_id} · ` +
+                    `unit_counts ${c.unit_counts} · options ${c.options} · ` +
+                    `scavenging_squad ${c.scavenging_squad} · option_id ${c.option_id}`
+                );
+
+                for (const [label, pattern] of patterns) {
+                    if (!item.counts[label]) continue;
+                    const snippets = autoContextSnippets(item.text, pattern, 180, 3);
+                    snippets.forEach((snip, idx) => {
+                        autoLog(`       ↳ ${label} #${idx + 1} @${snip.index}: ${snip.snippet}`);
+                    });
+                }
+            }
+
+            // HTML-level comparison catches structures outside script tags.
+            const html = document.documentElement?.outerHTML || '';
+            const htmlCounts = {};
+            for (const [label, pattern] of patterns) {
+                const re = new RegExp(pattern, 'gi');
+                const matches = html.match(re);
+                htmlCounts[label] = matches ? matches.length : 0;
+            }
+
+            autoLog(
+                `  🧪 Browser-HTML · ${html.length} Zeichen · ` +
+                `ScavengeMassScreen ${htmlCounts.ScavengeMassScreen} · village_id ${htmlCounts.village_id} · ` +
+                `unit_counts ${htmlCounts.unit_counts} · options ${htmlCounts.options} · ` +
+                `scavenging_squad ${htmlCounts.scavenging_squad} · option_id ${htmlCounts.option_id}`
+            );
+
+            for (const [label, pattern] of patterns) {
+                if (!htmlCounts[label]) continue;
+                const snippets = autoContextSnippets(html, pattern, 160, 2);
+                snippets.forEach((snip, idx) => {
+                    autoLog(`     ↳ HTML ${label} #${idx + 1} @${snip.index}: ${snip.snippet}`);
+                });
+            }
+        } catch (error) {
+            autoLog(`  ⚠️ Strukturvergleich fehlgeschlagen: ${error?.message || error}`);
+        }
+    }
+
     function getHtml(url) {
         return new Promise((resolve, reject) => {
             $.get(url)
@@ -4812,7 +4917,9 @@
             // geladenen Browser-Kontext auf bereits initialisierte Scavenge-/Village-Daten.
             AUTO.runtimeDataDiagnosticsDone = false;
             autoLogRuntimeDataDiagnostics();
+        autoLogWorldStructureComparison();
             autoLogScavengeConstructorDiagnostics();
+            autoLogWorldStructureComparison();
 
             const recent = (AUTO.networkDiagnostics || []).slice(-12);
             if (recent.length) {
