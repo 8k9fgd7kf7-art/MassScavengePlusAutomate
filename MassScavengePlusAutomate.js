@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.25
+// MassScavengePlusAutomate v1.3.26
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.25',
+        version: '1.3.26',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -1893,7 +1893,8 @@
         }
 
         if (!villages.length) {
-            throw new Error('Auf dieser Sammelseite wurden keine Dorf-Datensätze erkannt.');
+            autoLog('  ⚠️ Keine Dörfer auf der Massenraubzug-Seite gefunden. Prüfe oben bei „Gruppen“, ob versehentlich ein Gruppenfilter aktiv ist. Wähle ggf. „alle“ und starte den Autopiloten erneut.');
+            throw new Error('Auf dieser Sammelseite wurden keine Dorf-Datensätze erkannt. Möglicherweise ist ein Gruppenfilter aktiv.');
         }
         return villages;
     }
