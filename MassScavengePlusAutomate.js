@@ -4232,101 +4232,198 @@
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
+
+    function autoDiagnosticPreview(value, maxLen = 220) {
+        try {
+            if (value == null) return '';
+            let out = typeof value === 'string' ? value : JSON.stringify(value);
+            out = String(out).replace(/\s+/g, ' ').trim();
+            if (out.length > maxLen) out = out.slice(0, maxLen) + '…';
+            return out;
+        } catch (_) {
+            return String(value ?? '').slice(0, maxLen);
+        }
+    }
+
+    function autoShouldLogNetworkUrl(url) {
+        const s = String(url || '');
+        return /scavenge|sammel|ajax|api|screen/i.test(s);
+    }
+
+    function autoRecordNetworkDiagnostic(entry) {
+        try {
+            const item = {
+                at: new Date().toISOString(),
+                type: entry.type || 'request',
+                method: entry.method || 'GET',
+                url: String(entry.url || ''),
+                body: autoDiagnosticPreview(entry.body || ''),
+                status: entry.status ?? '',
+                response: autoDiagnosticPreview(entry.response || '')
+            };
+
+            AUTO.networkDiagnostics.push(item);
+            if (AUTO.networkDiagnostics.length > 80) {
+                AUTO.networkDiagnostics.splice(0, AUTO.networkDiagnostics.length - 80);
+            }
+
+            if (autoShouldLogNetworkUrl(item.url)) {
+                const status = item.status !== '' ? ` · ${item.status}` : '';
+                const body = item.body ? ` · body: ${item.body}` : '';
+                autoLog(`  🌐 ${item.type} ${item.method}${status} · ${item.url}${body}`);
+            }
+        } catch (_) {}
+    }
+
+    function installNetworkDiagnostics() {
+        if (AUTO.networkDiagnosticsInstalled) return;
+        AUTO.networkDiagnosticsInstalled = true;
+
+        try {
+            if (window.fetch && !window.fetch.__mspWrapped) {
+                const originalFetch = window.fetch.bind(window);
+                const wrappedFetch = async function(input, init = {}) {
+                    const url = typeof input === 'string' ? input : (input?.url || '');
+                    const method = String(init?.method || input?.method || 'GET').toUpperCase();
+                    const body = init?.body || '';
+
+                    let response;
+                    try {
+                        response = await originalFetch(input, init);
+                    } catch (error) {
+                        autoRecordNetworkDiagnostic({
+                            type: 'fetch',
+                            method,
+                            url,
+                            body,
+                            status: 'ERR',
+                            response: error?.message || String(error)
+                        });
+                        throw error;
+                    }
+
+                    if (autoShouldLogNetworkUrl(url)) {
+                        try {
+                            const clone = response.clone();
+                            const responseText = await clone.text();
+                            autoRecordNetworkDiagnostic({
+                                type: 'fetch',
+                                method,
+                                url,
+                                body,
+                                status: response.status,
+                                response: responseText
+                            });
+                        } catch (_) {
+                            autoRecordNetworkDiagnostic({
+                                type: 'fetch',
+                                method,
+                                url,
+                                body,
+                                status: response.status
+                            });
+                        }
+                    }
+
+                    return response;
+                };
+                wrappedFetch.__mspWrapped = true;
+                wrappedFetch.__mspOriginal = originalFetch;
+                window.fetch = wrappedFetch;
+            }
+        } catch (error) {
+            autoLog(`  ⚠️ Fetch-Diagnose konnte nicht installiert werden: ${error?.message || error}`);
+        }
+
+        try {
+            if (window.XMLHttpRequest && !XMLHttpRequest.prototype.__mspWrapped) {
+                const proto = XMLHttpRequest.prototype;
+                const originalOpen = proto.open;
+                const originalSend = proto.send;
+
+                proto.open = function(method, url) {
+                    this.__mspMethod = String(method || 'GET').toUpperCase();
+                    this.__mspUrl = String(url || '');
+                    return originalOpen.apply(this, arguments);
+                };
+
+                proto.send = function(body) {
+                    this.__mspBody = body || '';
+                    if (autoShouldLogNetworkUrl(this.__mspUrl)) {
+                        this.addEventListener('loadend', () => {
+                            let response = '';
+                            try {
+                                if (this.responseType === '' || this.responseType === 'text') {
+                                    response = this.responseText || '';
+                                } else if (this.responseType === 'json') {
+                                    response = this.response;
+                                }
+                            } catch (_) {}
+
+                            autoRecordNetworkDiagnostic({
+                                type: 'xhr',
+                                method: this.__mspMethod || 'GET',
+                                url: this.__mspUrl || '',
+                                body: this.__mspBody || '',
+                                status: this.status,
+                                response
+                            });
+                        }, { once: true });
+                    }
+                    return originalSend.apply(this, arguments);
+                };
+
+                proto.__mspWrapped = true;
+            }
+        } catch (error) {
+            autoLog(`  ⚠️ XHR-Diagnose konnte nicht installiert werden: ${error?.message || error}`);
+        }
+
+        try {
+            if (window.jQuery && typeof $.ajax === 'function' && !$.ajax.__mspWrapped) {
+                const originalAjax = $.ajax.bind($);
+                const wrappedAjax = function(urlOrOptions, maybeOptions) {
+                    let options, url;
+                    if (typeof urlOrOptions === 'string') {
+                        url = urlOrOptions;
+                        options = { ...(maybeOptions || {}), url };
+                    } else {
+                        options = { ...(urlOrOptions || {}) };
+                        url = options.url || '';
+                    }
+
+                    const method = String(options.type || options.method || 'GET').toUpperCase();
+                    const body = options.data || '';
+
+                    if (autoShouldLogNetworkUrl(url)) {
+                        autoRecordNetworkDiagnostic({
+                            type: 'jquery',
+                            method,
+                            url,
+                            body,
+                            status: '→'
+                        });
+                    }
+
+                    return originalAjax(urlOrOptions, maybeOptions);
+                };
+                wrappedAjax.__mspWrapped = true;
+                wrappedAjax.__mspOriginal = originalAjax;
+                $.ajax = wrappedAjax;
+            }
+        } catch (error) {
+            autoLog(`  ⚠️ jQuery-Diagnose konnte nicht installiert werden: ${error?.message || error}`);
+        }
+
+        autoLog('  🧪 Netzwerk-Diagnose aktiv: relevante fetch/XHR/jQuery-Aufrufe werden mitgeschrieben.');
+    }
+
     function getHtml(url) {
         return new Promise((resolve, reject) => {
             $.get(url)
                 .done(resolve)
                 .fail(xhr => reject(new Error(`HTTP-Fehler beim Laden (${xhr.status || 'unbekannt'}).`)));
         });
-    }
-
-
-    function currentDocumentHtml() {
-        try {
-            return document?.documentElement?.outerHTML || '';
-        } catch (_) {
-            return '';
-        }
-    }
-
-    function diagnoseScavengeHtml(html, sourceLabel) {
-        let scriptText = '';
-        try {
-            scriptText = scavengeScriptTextFromHtml(html);
-        } catch (_) {
-            scriptText = '';
-        }
-
-        const full = String(html || '');
-        const script = String(scriptText || '');
-        const signals = {
-            source: sourceLabel,
-            htmlLength: full.length,
-            scriptLength: script.length,
-            unitCountsHome: (script.match(/["']unit_counts_home["']/g) || []).length,
-            villageId: (script.match(/["']village_id["']/g) || []).length,
-            options: (script.match(/["']options["']/g) || []).length,
-            scavengingSquad: (script.match(/["']scavenging_squad["']/g) || []).length,
-            optionId: (script.match(/["']option_id["']/g) || []).length,
-            ScavengeMassScreen: (full.match(/ScavengeMassScreen/g) || []).length,
-            scavenge_api: (full.match(/scavenge_api/g) || []).length,
-        };
-
-        autoLog(
-            `  🔎 Diagnose ${sourceLabel}: HTML ${signals.htmlLength} Zeichen · ` +
-            `Script ${signals.scriptLength} · unit_counts_home ${signals.unitCountsHome} · ` +
-            `village_id ${signals.villageId} · options ${signals.options} · ` +
-            `scavenging_squad ${signals.scavengingSquad} · option_id ${signals.optionId} · ` +
-            `ScavengeMassScreen ${signals.ScavengeMassScreen}`
-        );
-
-        return signals;
-    }
-
-    function tryExtractVillagesWithBrowserFallback(fetchedHtml, pageIndex, pageTotal) {
-        let villages = [];
-
-        try {
-            villages = extractVillagesFromHtml(fetchedHtml) || [];
-        } catch (_) {
-            villages = [];
-        }
-
-        if (villages.length) {
-            return { villages, source: 'fetch' };
-        }
-
-        // Nur für die aktuell geöffnete erste Sammelseite ist ein Browser-DOM-Fallback sinnvoll.
-        if (pageIndex === 0) {
-            const browserHtml = currentDocumentHtml();
-            if (browserHtml) {
-                let browserVillages = [];
-                try {
-                    browserVillages = extractVillagesFromHtml(browserHtml) || [];
-                } catch (_) {
-                    browserVillages = [];
-                }
-
-                if (browserVillages.length) {
-                    autoLog(
-                        `  🧭 Browser-Fallback aktiv: ${browserVillages.length} Dorf/Dörfer ` +
-                        `direkt aus der geöffneten Sammelseite gelesen.`
-                    );
-                    return { villages: browserVillages, source: 'browser' };
-                }
-
-                // Wenn auch der DOM-Fallback nichts findet, beide Quellen diagnostizieren.
-                diagnoseScavengeHtml(fetchedHtml, `Fetch Seite ${pageIndex + 1}/${pageTotal}`);
-                diagnoseScavengeHtml(browserHtml, 'Browser-DOM');
-            } else {
-                diagnoseScavengeHtml(fetchedHtml, `Fetch Seite ${pageIndex + 1}/${pageTotal}`);
-                autoLog('  🔎 Diagnose Browser-DOM: document.documentElement.outerHTML war leer.');
-            }
-        } else {
-            diagnoseScavengeHtml(fetchedHtml, `Fetch Seite ${pageIndex + 1}/${pageTotal}`);
-        }
-
-        return { villages: [], source: 'none' };
     }
 
     async function loadAllVillagePages() {
@@ -4349,8 +4446,7 @@
 
         for (let i = 0; i < urls.length; i++) {
             const html = i === 0 ? firstHtml : await getHtml(urls[i]);
-            const extracted = tryExtractVillagesWithBrowserFallback(html, i, urls.length);
-            const pageVillages = extracted.villages || [];
+            const pageVillages = extractVillagesFromHtml(html);
 
             if (!pageVillages.length) {
                 emptyPages++;
@@ -4370,10 +4466,23 @@
         }
 
         if (!all.length) {
-            // Auch Browser-Fallback ohne verwertbare Dorf-Daten: sicher stoppen.
+            // v1.3.15: Bevor wir sicher stoppen, geben wir die zuletzt beobachteten
+            // relevanten Netzwerk-Aufrufe aus. Damit lässt sich erkennen, über welchen
+            // Endpoint Stämme die eigentlichen Sammel-Daten nachlädt.
+            const recent = (AUTO.networkDiagnostics || []).slice(-12);
+            if (recent.length) {
+                autoLog('  🧪 Letzte relevante Netzwerk-Aufrufe:');
+                for (const item of recent) {
+                    const status = item.status !== '' ? ` · ${item.status}` : '';
+                    const body = item.body ? ` · body: ${item.body}` : '';
+                    autoLog(`     ${item.type} ${item.method}${status} · ${item.url}${body}`);
+                }
+            } else {
+                autoLog('  🧪 Noch keine relevanten fetch/XHR/jQuery-Aufrufe beobachtet.');
+            }
+
             throw new Error(
-                `Weder Fetch noch Browser-DOM lieferten verwertbare Dorf-Datensätze. ` +
-                `Bitte die unmittelbar davor ausgegebenen 🔎 Diagnose-Zeilen schicken.`
+                'Keine verwertbaren Dorf-Datensätze gefunden. Bitte die unmittelbar davor ausgegebenen 🌐/🧪 Diagnose-Zeilen schicken.'
             );
         }
 
@@ -5081,7 +5190,9 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         runtimeSafetyMs: 30000,
         runtimeClamped: 0,
         runtimeRejected: 0,
-        optionLockState: new Map()
+        optionLockState: new Map(),
+        networkDiagnosticsInstalled: false,
+        networkDiagnostics: []
     };
 
 
@@ -6300,6 +6411,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
     }
 
     function initAutomateSimulation() {
+        installNetworkDiagnostics();
         const root = $(`#${APP.id}`);
         if (!root.length || $('#mspAutoPanel').length) return;
 
