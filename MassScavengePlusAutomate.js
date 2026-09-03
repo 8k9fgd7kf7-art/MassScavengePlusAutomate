@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.26
+// MassScavengePlusAutomate v1.3.27
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.26',
+        version: '1.3.27',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -1938,7 +1938,7 @@
         const root = $(`
 <div id="${APP.id}" class="msp-compact">
     <div class="msp-header">
-        <div class="msp-title">Mass Scavenge+ Automate <span class="msp-version">v${APP.version} SIM</span></div>
+        <div class="msp-title">Mass Scavenge+ Automate <span class="msp-version">v${APP.version}</span></div>
         <div class="msp-spacer"></div>
         <button class="msp-btn msp-btn-secondary msp-btn-icon" id="mspSettingsBtn" title="Einstellungen">⚙</button>
         <button class="msp-btn msp-btn-danger msp-btn-icon" id="mspCloseBtn" title="Schließen">✕</button>
@@ -2320,8 +2320,10 @@
     function bindEvents() {
         $('#mspCloseBtn').on('click', () => {
             readFormIntoConfig();
+            if (AUTO.running) autoStop();
             $(`#${APP.id}`).remove();
             $(`#${APP.modalId}`).remove();
+            window.__MASS_SCAVENGE_PLUS_RUNNING__ = false;
         });
 
         $('#mspSettingsBtn').on('click', openSettingsModal);
@@ -2682,7 +2684,7 @@
         prepareCollapsiblePanels();
         bindUiComfortEvents();
         updateTopStatus();
-        initAutomateSimulation();
+        initAutomatePanel();
     }
 
     function importSettingsPayload(imported) {
@@ -4926,16 +4928,16 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
     /* =========================================================
        Mass Scavenge+ Automate – Autopilot v1.3.9
-       - Simulation und echter Autopilot nutzen dieselbe getestete Planungslogik
+       - echter Autopilot nutzt die getestete Planungslogik
        - nutzt automatisch alle freien/freigeschalteten Kategorien
        - jeder einzelne Auftrag braucht mindestens 10 Bauernhofplätze
        - reichen Truppen nicht, fällt jeweils die schwächste Kategorie weg und es wird neu gerechnet
        - bündelt pro Dorf versetzt zurückkehrende Kategorien (Standard 10 Min.)
-       - simuliert Belegung/Rückkehr und prüft kurz nach der nächsten Rückkehr
+       - prüft kurz nach der nächsten Rückkehr erneut
        ========================================================= */
     const AUTO = {
         running: false,
-        mode: 'sim',
+        mode: 'live',
         timer: null,
         busy: new Map(),
         log: [],
@@ -4981,7 +4983,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         const runtime = AUTO.startedAt ? autoDuration(Date.now() - AUTO.startedAt) : '00:00:00';
         const occupied = AUTO.busy.size;
         const suffix = extra ? ` · ${extra}` : '';
-        const modeText = AUTO.mode === 'live' ? '🔴 Autopilot läuft' : '🟢 Simulation läuft';
+        const modeText = '🔴 Autopilot läuft';
         $('#mspAutoState').text(`${AUTO.running ? modeText : '⚪ Bereit'} · ⏱ ${runtime}${suffix}`);
         $('#mspAutoLaunchedStat').text(`🚀 ${AUTO.launched}`);
         $('#mspAutoCycleStat').text(`🔄 ${AUTO.cycles}`);
@@ -5607,11 +5609,11 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
             autoLog(`Zyklus ${AUTO.cycles} · Check gestartet · Sammeldaten werden frisch eingelesen.`);
 
             let villages = await loadAllVillagePages();
-            let plan = autoBuildPlan(villages, times, AUTO.mode === 'sim');
+            let plan = autoBuildPlan(villages, times, false);
 
             // Im echten Modus unmittelbar vor dem Versand ein zweites Mal frisch lesen
             // und neu planen. Nur dieser zweite, aktuelle Plan darf gesendet werden.
-            if (AUTO.mode === 'live' && plan.requests.length) {
+            if (plan.requests.length) {
                 autoLog('  🛡 Sicherheitscheck · Serverdaten werden direkt vor dem Versand erneut eingelesen.');
                 const firstRequests = plan.requests.slice();
                 villages = await loadAllVillagePages();
@@ -5683,7 +5685,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                     busyEntries.push([autoBusyKey(req.village_id, req.option_id), until]);
                 }
 
-                if (AUTO.mode === 'live') {
+                {
                     const violations = autoFinalRuntimeGuard(squadRequests, villages, times);
                     if (violations.length) {
                         const worst = violations
@@ -5695,32 +5697,26 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                     await autoSendRequests(squadRequests);
                 }
 
-                // Erst nach erfolgreichem Versand bzw. in der Simulation als belegt merken.
+                // Erst nach erfolgreichem Versand als belegt merken.
                 for (const [key, until] of busyEntries) AUTO.busy.set(key, until);
                 AUTO.launched += squadRequests.length;
                 const returnText = Number.isFinite(earliestReturn)
                     ? new Date(earliestReturn).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'})
                     : '—';
-                const verb = AUTO.mode === 'live' ? 'wurden jetzt gestartet' : 'wären jetzt gestartet worden';
+                const verb = 'wurden jetzt gestartet';
                 autoLog(`${squadRequests.length} Sammelauftrag/-aufträge ${verb} · ${byVillage.size} Dörfer · ${reducedVillages} Dorf/Dörfer mit Kategorie-Fallback · ${bundledVillages} Dorf/Dörfer gebündelt · früheste Rückkehr ${returnText}.`);
             }
 
             const occupied = AUTO.busy.size;
-            const occupiedLabel = AUTO.mode === 'live'
-                ? `unterwegs lokal/server: ${occupied}/${occupied}`
-                : `simuliert unterwegs: ${occupied}`;
+            const occupiedLabel = `unterwegs lokal/server: ${occupied}/${occupied}`;
             autoLog(`Status · Dörfer ${villages.length} · frei geprüft ${freeTotal} · geplant ${plannedTotal} · gebündelt ${bundledVillages} · ${occupiedLabel}`);
             autoUpdateStatus();
             autoSchedule(autoNextDelay());
         } catch (error) {
             console.error('[MassScavenge+ Automate]', error);
             autoLog(`Fehler beim Aktualisieren: ${error.message}`);
-            if (AUTO.mode === 'live') {
-                autoLog('🛑 Echter Autopilot aus Sicherheitsgründen gestoppt. Es wird NICHT automatisch erneut gesendet.');
-                autoStop(true);
-            } else {
-                autoSchedule(AUTO.fallbackDelayMs);
-            }
+            autoLog('🛑 Echter Autopilot aus Sicherheitsgründen gestoppt. Es wird NICHT automatisch erneut gesendet.');
+            autoStop(true);
         } finally {
             AUTO.cycleRunning = false;
         }
@@ -5728,14 +5724,14 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
 
 
-    function autoStart(mode = 'sim') {
+    function autoStart() {
         try {
             if (AUTO.running) {
                 autoLog('Start abgelehnt: Automate läuft bereits.');
                 return;
             }
 
-            AUTO.mode = mode === 'live' ? 'live' : 'sim';
+            AUTO.mode = 'live';
             readFormIntoConfig();
 
             // Automate verwaltet die Kategorien selbst.
@@ -5780,16 +5776,12 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                     clearInterval(AUTO.statusTimer);
                     AUTO.statusTimer = setInterval(() => autoUpdateStatus(), 1000);
 
-                    $('#mspAutoSimStart,#mspAutoLiveStart').prop('disabled', true);
+                    $('#mspAutoLiveStart').prop('disabled', true);
                     $('#mspAutoStop').prop('disabled', false);
                     autoUpdateStatus('startet …');
 
-                    if (AUTO.mode === 'live') {
-                        autoLog('🔴 Echter Autopilot gestartet. Sammelaufträge werden automatisch gesendet.');
-                        autoLog('🛡 Sicherheitsmodus aktiv: direkt vor jedem Versand wird frisch neu geplant; bei unklarer Serverantwort stoppt der Autopilot.');
-                    } else {
-                        autoLog('Simulation gestartet. Es werden KEINE echten Sammelaufträge gesendet.');
-                    }
+                    autoLog('🔴 Echter Autopilot gestartet. Sammelaufträge werden automatisch gesendet.');
+                    autoLog('🛡 Sicherheitsmodus aktiv: direkt vor jedem Versand wird frisch neu geplant; bei unklarer Serverantwort stoppt der Autopilot.');
 
                     if (AUTO.planMode === 'runtime') {
                         autoLog(`⏱ Planungsmodus Laufzeit · Off ${safetyRuntimeLabel(AUTO.runtimeOffHours)} · Def ${safetyRuntimeLabel(AUTO.runtimeDefHours)} · harte Maximaldauer je Raubzug ${safetyRuntimeLabel(AUTO.maxRaidHours)}.`);
@@ -5802,7 +5794,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                 } catch (error) {
                     console.error('[MassScavenge+ Automate Begin]', error);
                     AUTO.running = false;
-                    $('#mspAutoSimStart,#mspAutoLiveStart').prop('disabled', false);
+                    $('#mspAutoLiveStart').prop('disabled', false);
                     $('#mspAutoStop').prop('disabled', true);
                     const message = error?.message || String(error);
                     autoLog(`❌ Startfehler: ${message}`);
@@ -5811,18 +5803,13 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                 }
             };
 
-            if (AUTO.mode === 'live') {
-                if (!confirmExtremeRuntime(times, 'Autopilot')) {
-                    autoLog('Echter Autopilot wurde bei der Laufzeitwarnung abgebrochen.');
-                    return;
-                }
-
-                // Kein zusätzlicher Bestätigungsdialog mehr: Klick auf „Autopilot starten“
-                // startet nach den normalen Validierungs-/Laufzeitprüfungen direkt.
-                beginRun();
+            if (!confirmExtremeRuntime(times, 'Autopilot')) {
+                autoLog('Echter Autopilot wurde bei der Laufzeitwarnung abgebrochen.');
                 return;
             }
 
+            // Kein zusätzlicher Bestätigungsdialog mehr: Klick auf „Autopilot starten“
+            // startet nach den normalen Validierungs-/Laufzeitprüfungen direkt.
             beginRun();
         } catch (error) {
             console.error('[MassScavenge+ Automate Start]', error);
@@ -5831,7 +5818,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
             autoUpdateStatus('Startfehler');
             try { notifyError(`Autopilot konnte nicht gestartet werden: ${message}`); } catch (_) {}
             AUTO.running = false;
-            $('#mspAutoSimStart,#mspAutoLiveStart').prop('disabled', false);
+            $('#mspAutoLiveStart').prop('disabled', false);
             $('#mspAutoStop').prop('disabled', true);
         }
     }
@@ -5839,19 +5826,17 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
     function autoStop(fromError = false) {
         const runtime = AUTO.startedAt ? autoDuration(Date.now() - AUTO.startedAt) : '00:00:00';
         const wasRunning = AUTO.running;
-        const mode = AUTO.mode;
         AUTO.running = false;
         clearTimeout(AUTO.timer);
         clearInterval(AUTO.statusTimer);
         AUTO.statusTimer = null;
         AUTO.timer = null;
-        $('#mspAutoSimStart,#mspAutoLiveStart').prop('disabled', false);
+        $('#mspAutoLiveStart').prop('disabled', false);
         $('#mspAutoStop').prop('disabled', true);
         $('#mspAutoState').text(`⏹ Gestoppt · ⏱ ${runtime} · 🚀 ${AUTO.launched} · 🔄 ${AUTO.cycles}`);
         $('#mspAutoNext').text('Nächster Check: —');
         if (wasRunning && !fromError) {
-            const label = mode === 'live' ? 'Echter Autopilot' : 'Simulation';
-            autoLog(`${label} gestoppt · Laufzeit ${runtime} · ${AUTO.launched} Sammelaufträge ${mode === 'live' ? 'gesendet' : 'simuliert'} · ${AUTO.cycles} Zyklen · ${AUTO.droppedCategories} Kategorien durch Fallback entfernt.`);
+            autoLog(`Echter Autopilot gestoppt · Laufzeit ${runtime} · ${AUTO.launched} Sammelaufträge gesendet · ${AUTO.cycles} Zyklen · ${AUTO.droppedCategories} Kategorien durch Fallback entfernt.`);
         }
 
         AUTO.deadlineOffAt = 0;
@@ -5877,7 +5862,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         if (!root.length) return;
 
         // In Automate entscheidet das Script selbst über die Sammelkategorien
-        // und berechnet/versendet im eigenen Zyklus; Simulation und Live-Modus teilen dieselbe Planung.
+        // und berechnet/versendet im eigenen Zyklus.
         $('#mspCategoriesPanel').remove();
         $('#mspCalculatePanel').remove();
         $('#mspPreviewPanel').remove();
@@ -6142,7 +6127,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         updateAutomateDeadlineBadge();
     }
 
-    function initAutomateSimulation() {
+    function initAutomatePanel() {
         const root = $(`#${APP.id}`);
         if (!root.length || $('#mspAutoPanel').length) return;
 
@@ -6150,11 +6135,10 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
             <div class="msp-panel" id="mspAutoPanel" style="border:2px solid #8b6914;">
                 <div class="msp-panel-title">
                     🤖 MassScavenge Automate v${APP.version}
-                    <span class="msp-section-note">Simulation + Autopilot</span>
+                    <span class="msp-section-note">Autopilot</span>
                 </div>
                 <div class="msp-panel-content">
                     <div class="msp-auto-actions">
-                        <button class="msp-btn msp-btn-secondary" id="mspAutoSimStart">🧪 Simulation starten</button>
                         <button class="msp-btn msp-btn-success" id="mspAutoLiveStart">▶ Autopilot starten</button>
                         <button class="msp-btn msp-btn-danger" id="mspAutoStop" disabled>■ Stoppen</button>
                         <button class="msp-btn msp-btn-secondary" id="mspAutoCopy">📋 Protokoll kopieren</button>
@@ -6208,8 +6192,20 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
         root.find('.msp-body').prepend(panel);
 
-        $('#mspAutoSimStart').on('click', () => autoStart('sim'));
-        $('#mspAutoLiveStart').on('click', () => autoStart('live'));
+        // Die kompakte Statuszeile gehört zu „Details“ und ist im Normalzustand ausgeblendet.
+        const topStatus = $('#mspTopStatus');
+        if (topStatus.length) {
+            topStatus.removeClass('msp-top-status-outside').prependTo(panel.find('.msp-auto-details'));
+            topStatus.css({
+                position: 'static',
+                top: 'auto',
+                zIndex: 'auto',
+                margin: '0 0 7px 0',
+                gridColumn: '1 / -1'
+            });
+        }
+
+        $('#mspAutoLiveStart').on('click', () => autoStart());
         $('#mspAutoStop').on('click', autoStop);
         $('#mspAutoCopy').on('click', autoCopyLog);
 
@@ -6269,7 +6265,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         startSafePositionGuard();
         updateTopStatus();
         startSessionTicker();
-        initAutomateSimulation();
+        initAutomatePanel();
         log('gestartet', config);
     }
 
