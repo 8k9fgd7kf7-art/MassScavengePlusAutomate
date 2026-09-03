@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.16
+// MassScavengePlusAutomate v1.3.17
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.16',
+        version: '1.3.17',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -4562,6 +4562,8 @@
             return;
         }
 
+        autoLogScavengeConstructorDiagnostics();
+
         autoLog(`  🧬 ${candidates.length} möglicher Runtime-Kandidat(en) gefunden:`);
         for (const item of candidates.slice(0, 20)) {
             autoLog(`     ${item.source} · ${item.name} · ${item.description}`);
@@ -4569,6 +4571,192 @@
         }
         if (candidates.length > 20) {
             autoLog(`     … ${candidates.length - 20} weitere Kandidaten ausgeblendet.`);
+        }
+    }
+
+
+    function autoSplitTopLevelArgs(source) {
+        const args = [];
+        let start = 0;
+        let depthParen = 0;
+        let depthBrace = 0;
+        let depthBracket = 0;
+        let quote = null;
+        let escaped = false;
+
+        for (let i = 0; i < source.length; i++) {
+            const ch = source[i];
+
+            if (quote) {
+                if (escaped) {
+                    escaped = false;
+                    continue;
+                }
+                if (ch === '\\') {
+                    escaped = true;
+                    continue;
+                }
+                if (ch === quote) {
+                    quote = null;
+                }
+                continue;
+            }
+
+            if (ch === '"' || ch === "'" || ch === '`') {
+                quote = ch;
+                continue;
+            }
+
+            if (ch === '(') depthParen++;
+            else if (ch === ')') depthParen--;
+            else if (ch === '{') depthBrace++;
+            else if (ch === '}') depthBrace--;
+            else if (ch === '[') depthBracket++;
+            else if (ch === ']') depthBracket--;
+            else if (
+                ch === ',' &&
+                depthParen === 0 &&
+                depthBrace === 0 &&
+                depthBracket === 0
+            ) {
+                args.push(source.slice(start, i).trim());
+                start = i + 1;
+            }
+        }
+
+        const tail = source.slice(start).trim();
+        if (tail) args.push(tail);
+        return args;
+    }
+
+    function autoExtractConstructorArgs(scriptText) {
+        const needle = 'new ScavengeMassScreen(';
+        const start = scriptText.indexOf(needle);
+        if (start < 0) return null;
+
+        let i = start + needle.length;
+        let depth = 1;
+        let quote = null;
+        let escaped = false;
+
+        for (; i < scriptText.length; i++) {
+            const ch = scriptText[i];
+
+            if (quote) {
+                if (escaped) {
+                    escaped = false;
+                    continue;
+                }
+                if (ch === '\\') {
+                    escaped = true;
+                    continue;
+                }
+                if (ch === quote) quote = null;
+                continue;
+            }
+
+            if (ch === '"' || ch === "'" || ch === '`') {
+                quote = ch;
+                continue;
+            }
+
+            if (ch === '(') depth++;
+            else if (ch === ')') {
+                depth--;
+                if (depth === 0) {
+                    const inside = scriptText.slice(start + needle.length, i);
+                    return autoSplitTopLevelArgs(inside);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    function autoArgSummary(argText, index) {
+        const trimmed = String(argText || '').trim();
+        let type = 'expression';
+        let keys = [];
+        let length = trimmed.length;
+
+        if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+            type = 'object-literal';
+            try {
+                const parsed = JSON.parse(trimmed);
+                keys = Object.keys(parsed);
+                return {
+                    index,
+                    type,
+                    length,
+                    keys,
+                    preview: autoDiagnosticPreview(parsed, 700)
+                };
+            } catch (_) {
+                const keyMatches = [...trimmed.matchAll(/["']?([A-Za-z0-9_]+)["']?\s*:/g)]
+                    .map(m => m[1]);
+                keys = [...new Set(keyMatches)].slice(0, 20);
+            }
+        } else if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+            type = 'array-literal';
+        } else if (/^(true|false)$/.test(trimmed)) {
+            type = 'boolean';
+        } else if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
+            type = 'number';
+        } else if (
+            (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+            (trimmed.startsWith("'") && trimmed.endsWith("'"))
+        ) {
+            type = 'string';
+        }
+
+        return {
+            index,
+            type,
+            length,
+            keys,
+            preview: autoDiagnosticPreview(trimmed, 700)
+        };
+    }
+
+    function autoLogScavengeConstructorDiagnostics() {
+        try {
+            const scripts = [...document.scripts];
+            const matches = [];
+
+            scripts.forEach((script, scriptIndex) => {
+                const text = script.textContent || '';
+                if (!text.includes('new ScavengeMassScreen(')) return;
+
+                const args = autoExtractConstructorArgs(text);
+                matches.push({ scriptIndex, args });
+            });
+
+            if (!matches.length) {
+                autoLog('  🧩 Konstruktor-Diagnose: kein new ScavengeMassScreen(...) im aktuellen DOM gefunden.');
+                return;
+            }
+
+            for (const match of matches) {
+                if (!match.args) {
+                    autoLog(`  🧩 script[${match.scriptIndex}]: ScavengeMassScreen gefunden, Argumente konnten aber nicht sauber getrennt werden.`);
+                    continue;
+                }
+
+                autoLog(`  🧩 script[${match.scriptIndex}]: ScavengeMassScreen mit ${match.args.length} Top-Level-Argument(en).`);
+
+                match.args.forEach((arg, index) => {
+                    const info = autoArgSummary(arg, index + 1);
+                    const keys = info.keys?.length
+                        ? ` · keys: ${info.keys.slice(0, 12).join(', ')}${info.keys.length > 12 ? ', …' : ''}`
+                        : '';
+                    autoLog(`     Arg ${info.index}: ${info.type} · ${info.length} Zeichen${keys}`);
+                    if (info.preview) {
+                        autoLog(`       ↳ ${info.preview}`);
+                    }
+                });
+            }
+        } catch (error) {
+            autoLog(`  ⚠️ Konstruktor-Diagnose fehlgeschlagen: ${error?.message || error}`);
         }
     }
 
@@ -4624,6 +4812,7 @@
             // geladenen Browser-Kontext auf bereits initialisierte Scavenge-/Village-Daten.
             AUTO.runtimeDataDiagnosticsDone = false;
             autoLogRuntimeDataDiagnostics();
+            autoLogScavengeConstructorDiagnostics();
 
             const recent = (AUTO.networkDiagnostics || []).slice(-12);
             if (recent.length) {
