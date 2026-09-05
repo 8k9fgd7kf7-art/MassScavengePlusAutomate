@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.28
+// MassScavengePlusAutomate v1.3.29
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.28',
+        version: '1.3.29',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -2014,7 +2014,7 @@
                         <label><input type="radio" name="mspTimeMode" value="runtime"> Laufzeit in Stunden</label>
                         <label class="msp-max-raid-runtime" title="Harte Obergrenze: Kein einzelner neu gestarteter Raubzug darf länger laufen – unabhängig von Rückkehrzeit oder eingestellter Laufzeit.">
                             <b>Max. je Raubzug:</b>
-                            <input id="mspAutoMaxRaidHours" type="number" min="0.1" max="48" step="0.25"
+                            <input id="mspAutoMaxRaidHours" type="number" min="0.1" max="24" step="0.25"
                                 value="${escapeHtml(String(AUTO.maxRaidHours))}"> Std.
                             <span class="msp-info-hint" title="Harte Obergrenze: gilt immer, unabhängig von Rückkehrzeit oder Laufzeit.">ⓘ</span>
                         </label>
@@ -2636,7 +2636,7 @@
 
     function readAutomateSettingsForExport() {
         const bundleMinutes = Math.max(0, Math.min(60, Number(localStorage.getItem('msp_automate_bundle_minutes') ?? (AUTO.bundleWindowMs / 60000) ?? 10)));
-        const maxRaidHours = Math.max(0.1, Math.min(48, Number(localStorage.getItem('msp_automate_max_raid_hours') ?? AUTO.maxRaidHours ?? 4)));
+        const maxRaidHours = Math.max(0.1, Math.min(24, Number(localStorage.getItem('msp_automate_max_raid_hours') ?? AUTO.maxRaidHours ?? 4)));
         return {
             bundleMinutes,
             maxRaidHours,
@@ -2680,7 +2680,7 @@
     function applyImportedAutomateSettings(raw) {
         const incoming = raw && typeof raw === 'object' ? raw : {};
         const bundleMinutes = Math.max(0, Math.min(60, safeFloat(incoming.bundleMinutes, 10, 0, 60)));
-        const maxRaidHours = Math.max(0.1, Math.min(48, safeFloat(incoming.maxRaidHours, 4, 0.1, 48)));
+        const maxRaidHours = Math.max(0.1, Math.min(24, safeFloat(incoming.maxRaidHours, 4, 0.1, 24)));
         localStorage.setItem('msp_automate_bundle_minutes', String(bundleMinutes));
         localStorage.setItem('msp_automate_max_raid_hours', String(maxRaidHours));
         const stopDate = /^\d{4}-\d{2}-\d{2}$/.test(String(incoming.stopDate || '')) ? String(incoming.stopDate) : '';
@@ -5352,7 +5352,8 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         const now = serverDateMs;
 
         AUTO.planMode = mode === 'runtime' ? 'runtime' : 'return';
-        AUTO.maxRaidHours = Math.max(0.1, safeFloat($('#mspAutoMaxRaidHours').val(), AUTO.maxRaidHours, 0.1));
+        AUTO.maxRaidHours = Math.max(0.1, Math.min(24, safeFloat($('#mspAutoMaxRaidHours').val(), AUTO.maxRaidHours || 4, 0.1, 24)));
+        $('#mspAutoMaxRaidHours').val(AUTO.maxRaidHours);
         localStorage.setItem('msp_automate_max_raid_hours', String(AUTO.maxRaidHours));
 
         if (AUTO.planMode === 'runtime') {
@@ -6255,12 +6256,24 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
             updateAutomateDeadlineBadge();
         });
 
-        $('#mspAutoMaxRaidHours').on('input change', function () {
-            const value = Math.max(0.1, Math.min(48, Number($(this).val()) || 4));
-            $(this).val(value);
-            AUTO.maxRaidHours = value;
-            localStorage.setItem('msp_automate_max_raid_hours', String(value));
-        });
+        $('#mspAutoMaxRaidHours')
+            .on('input', function () {
+                // Während des Tippens absichtlich nichts zurückschreiben:
+                // Das Feld darf kurz leer sein, damit z.B. „12“ bequem neu eingegeben werden kann.
+            })
+            .on('change blur', function () {
+                const raw = String($(this).val() ?? '').trim();
+                let value = Number(raw);
+
+                if (!raw || !Number.isFinite(value)) {
+                    value = Number(AUTO.maxRaidHours) || 4;
+                }
+
+                value = Math.max(0.1, Math.min(24, value));
+                $(this).val(value);
+                AUTO.maxRaidHours = value;
+                localStorage.setItem('msp_automate_max_raid_hours', String(value));
+            });
 
         initAutomateStopInputs();
         updateAutomateDeadlineBadge();
