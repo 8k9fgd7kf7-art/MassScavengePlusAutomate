@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.30
+// MassScavengePlusAutomate v1.3.31
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.30',
+        version: '1.3.31',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -5756,14 +5756,41 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
     function detectBotProtection(root = document) {
         try {
-            const bodyText = String(root?.body?.innerText || root?.innerText || '').toLowerCase();
-            const html = String(root?.documentElement?.innerHTML || root?.innerHTML || '').toLowerCase();
+            const doc = root?.nodeType === 9 ? root : (root?.ownerDocument || document);
+            const scope = root;
 
+            const isInsideOwnUi = (el) => {
+                if (!el || !el.closest) return false;
+                return !!el.closest(`#${APP.id}, #${APP.modalId}, #mspFakeBotProtection`);
+            };
+
+            const selectorSignals = [
+                'iframe[src*="captcha" i]',
+                'iframe[src*="recaptcha" i]',
+                'iframe[src*="hcaptcha" i]',
+                '[class*="captcha" i]',
+                '[id*="captcha" i]',
+                '[class*="bot-protection" i]',
+                '[id*="bot-protection" i]',
+                '[class*="botcheck" i]',
+                '[id*="botcheck" i]'
+            ];
+
+            for (const sel of selectorSignals) {
+                let nodes = [];
+                try { nodes = Array.from(scope.querySelectorAll?.(sel) || []); } catch (_) {}
+                const hit = nodes.find(el => !isInsideOwnUi(el));
+                if (hit) {
+                    return { detected: true, reason: `DOM-Signal ${sel}` };
+                }
+            }
+
+            // Keine Volltextsuche mehr über die komplette Seite.
+            // Nur kompakte, sichtbare Spiel-Elemente außerhalb unseres Fensters prüfen.
             const textSignals = [
                 'botschutz',
                 'bot-schutz',
                 'bot protection',
-                'captcha',
                 'sicherheitsüberprüfung',
                 'sicherheitspr\u00fcfung',
                 'bitte bestätige, dass du kein bot bist',
@@ -5772,24 +5799,26 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                 'verd\u00e4chtige aktivit\u00e4t'
             ];
 
-            const selectorSignals = [
-                'iframe[src*="captcha"]',
-                'iframe[src*="recaptcha"]',
-                'iframe[src*="hcaptcha"]',
-                '[class*="captcha"]',
-                '[id*="captcha"]',
-                '[class*="bot-protection"]',
-                '[id*="bot-protection"]'
-            ];
+            const candidates = Array.from(scope.querySelectorAll?.(
+                'div,section,form,dialog,table,td,span,p,h1,h2,h3'
+            ) || []);
 
-            const textHit = textSignals.find(sig => bodyText.includes(sig) || html.includes(sig));
-            const selectorHit = selectorSignals.find(sel => {
-                try { return !!root.querySelector?.(sel); } catch (_) { return false; }
-            });
+            for (const el of candidates) {
+                if (isInsideOwnUi(el)) continue;
 
-            return textHit || selectorHit
-                ? { detected: true, reason: textHit ? `Textsignal „${textHit}“` : `DOM-Signal ${selectorHit}` }
-                : { detected: false, reason: '' };
+                const style = doc.defaultView?.getComputedStyle?.(el);
+                if (style && (style.display === 'none' || style.visibility === 'hidden')) continue;
+
+                const txt = String(el.innerText || '').trim().toLowerCase();
+                if (!txt || txt.length > 1200) continue;
+
+                const hit = textSignals.find(sig => txt.includes(sig));
+                if (hit) {
+                    return { detected: true, reason: `Textsignal „${hit}“` };
+                }
+            }
+
+            return { detected: false, reason: '' };
         } catch (_) {
             return { detected: false, reason: '' };
         }
@@ -5847,7 +5876,12 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         const fake = document.createElement('div');
         fake.id = 'mspFakeBotProtection';
         fake.className = 'bot-protection captcha';
-        fake.style.display = 'none';
+        fake.style.position = 'fixed';
+        fake.style.left = '-9999px';
+        fake.style.top = '0';
+        fake.style.width = '1px';
+        fake.style.height = '1px';
+        fake.style.overflow = 'hidden';
         fake.textContent = 'Botschutz – Sicherheitsüberprüfung – Captcha';
         document.body.appendChild(fake);
 
