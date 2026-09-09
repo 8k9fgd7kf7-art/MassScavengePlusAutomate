@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.29
+// MassScavengePlusAutomate v1.3.30
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.29',
+        version: '1.3.30',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -2336,6 +2336,7 @@
             if (AUTO.running) autoStop();
             $(`#${APP.id}`).remove();
             $(`#${APP.modalId}`).remove();
+            try { AUTO.botProtectionObserver?.disconnect?.(); } catch (_) {}
             window.__MASS_SCAVENGE_PLUS_RUNNING__ = false;
         });
 
@@ -4250,7 +4251,18 @@
     function getHtml(url) {
         return new Promise((resolve, reject) => {
             $.get(url)
-                .done(resolve)
+                .done(html => {
+                    try {
+                        const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+                        const guard = detectBotProtection(doc);
+                        if (guard.detected) {
+                            handleBotProtection(guard.reason);
+                            reject(new Error('Botschutz erkannt.'));
+                            return;
+                        }
+                    } catch (_) {}
+                    resolve(html);
+                })
                 .fail(xhr => reject(new Error(`HTTP-Fehler beim Laden (${xhr.status || 'unbekannt'}).`)));
         });
     }
@@ -4949,6 +4961,8 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
        - prüft kurz nach der nächsten Rückkehr erneut
        ========================================================= */
     const AUTO = {
+        botProtectionDetected: false,
+        botProtectionObserver: null,
         running: false,
         mode: 'live',
         timer: null,
@@ -5589,6 +5603,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
     async function autoCycle() {
         if (!AUTO.running || AUTO.cycleRunning) return;
+        if (checkBotProtectionNow()) return;
 
         if (autoDeadlineReached()) {
             autoStopAtDeadline();
@@ -5738,12 +5753,126 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
 
 
+
+    function detectBotProtection(root = document) {
+        try {
+            const bodyText = String(root?.body?.innerText || root?.innerText || '').toLowerCase();
+            const html = String(root?.documentElement?.innerHTML || root?.innerHTML || '').toLowerCase();
+
+            const textSignals = [
+                'botschutz',
+                'bot-schutz',
+                'bot protection',
+                'captcha',
+                'sicherheitsüberprüfung',
+                'sicherheitspr\u00fcfung',
+                'bitte bestätige, dass du kein bot bist',
+                'bitte best\u00e4tige, dass du kein bot bist',
+                'verdächtige aktivität',
+                'verd\u00e4chtige aktivit\u00e4t'
+            ];
+
+            const selectorSignals = [
+                'iframe[src*="captcha"]',
+                'iframe[src*="recaptcha"]',
+                'iframe[src*="hcaptcha"]',
+                '[class*="captcha"]',
+                '[id*="captcha"]',
+                '[class*="bot-protection"]',
+                '[id*="bot-protection"]'
+            ];
+
+            const textHit = textSignals.find(sig => bodyText.includes(sig) || html.includes(sig));
+            const selectorHit = selectorSignals.find(sel => {
+                try { return !!root.querySelector?.(sel); } catch (_) { return false; }
+            });
+
+            return textHit || selectorHit
+                ? { detected: true, reason: textHit ? `Textsignal „${textHit}“` : `DOM-Signal ${selectorHit}` }
+                : { detected: false, reason: '' };
+        } catch (_) {
+            return { detected: false, reason: '' };
+        }
+    }
+
+    function handleBotProtection(reason = 'Botschutz erkannt') {
+        if (AUTO.botProtectionDetected) return;
+        AUTO.botProtectionDetected = true;
+
+        if (AUTO.running) {
+            autoLog(`  🛑 ${reason} · Autopilot wird sofort gestoppt. Keine weiteren Sammelaufträge werden gesendet.`);
+            autoStop(true);
+        }
+
+        try {
+            const root = $(`#${APP.id}`);
+            if (!root.find('#mspBotProtectionWarning').length) {
+                root.find('.msp-body').prepend(`
+                    <div id="mspBotProtectionWarning"
+                         style="padding:9px 11px;margin:0 0 8px;border:2px solid #a7352d;border-radius:6px;background:#ffe2dc;color:#6d160f;font-weight:800;">
+                        🛑 Botschutz erkannt – bitte im Spiel manuell bestätigen. Danach den Autopiloten neu starten.
+                    </div>
+                `);
+            }
+        } catch (_) {}
+    }
+
+    function checkBotProtectionNow() {
+        const result = detectBotProtection(document);
+        if (!result.detected) return false;
+        handleBotProtection(result.reason);
+        return true;
+    }
+
+    function installBotProtectionObserver() {
+        try { AUTO.botProtectionObserver?.disconnect?.(); } catch (_) {}
+
+        AUTO.botProtectionObserver = new MutationObserver(() => {
+            if (checkBotProtectionNow()) {
+                try { AUTO.botProtectionObserver?.disconnect?.(); } catch (_) {}
+            }
+        });
+
+        try {
+            AUTO.botProtectionObserver.observe(document.documentElement, {
+                childList: true,
+                subtree: true
+            });
+        } catch (_) {}
+    }
+
+    // Testet nur unseren Schutzmechanismus mit einem lokalen Fake-Botschutz.
+    // Es wird kein echter Botschutz gelöst oder umgangen.
+    function simulateBotProtectionGuard() {
+        const fake = document.createElement('div');
+        fake.id = 'mspFakeBotProtection';
+        fake.className = 'bot-protection captcha';
+        fake.style.display = 'none';
+        fake.textContent = 'Botschutz – Sicherheitsüberprüfung – Captcha';
+        document.body.appendChild(fake);
+
+        const result = detectBotProtection(document);
+        fake.remove();
+
+        if (result.detected) {
+            autoLog(`  🧪 Botschutz-Guard-Simulation erfolgreich · ${result.reason}`);
+            return true;
+        }
+
+        autoLog('  ⚠️ Botschutz-Guard-Simulation fehlgeschlagen · Fake-Signal wurde nicht erkannt.');
+        return false;
+    }
+
     function autoStart() {
         try {
             if (AUTO.running) {
                 autoLog('Start abgelehnt: Automate läuft bereits.');
                 return;
             }
+
+            AUTO.botProtectionDetected = false;
+            $('#mspBotProtectionWarning').remove();
+            if (checkBotProtectionNow()) return;
 
             AUTO.mode = 'live';
             readFormIntoConfig();
@@ -6156,6 +6285,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                         <button class="msp-btn msp-btn-success" id="mspAutoLiveStart">▶ Autopilot starten</button>
                         <button class="msp-btn msp-btn-danger" id="mspAutoStop" disabled>■ Stoppen</button>
                         <button class="msp-btn msp-btn-secondary" id="mspAutoCopy">📋 Protokoll kopieren</button>
+                        <button class="msp-btn msp-btn-secondary" id="mspBotGuardTest">🧪 Botschutz-Guard testen</button>
                         <button class="msp-btn msp-btn-secondary" id="mspAutoDetailsToggle">▾ Details</button>
                     </div>
 
@@ -6222,6 +6352,8 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         $('#mspAutoLiveStart').on('click', () => autoStart());
         $('#mspAutoStop').on('click', autoStop);
         $('#mspAutoCopy').on('click', autoCopyLog);
+        $('#mspBotGuardTest').on('click', simulateBotProtectionGuard);
+        installBotProtectionObserver();
 
         $('#mspAutoDetailsToggle').on('click', function () {
             const open = !$('#mspAutoPanel').hasClass('msp-auto-details-open');
