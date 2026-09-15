@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.31
+// MassScavengePlusAutomate v1.3.32
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.31',
+        version: '1.3.32',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -1772,6 +1772,32 @@
     scrollbar-gutter: stable;
 }
 
+#${APP.id} .msp-unit-mobile-order {
+    display:none;
+}
+#${APP.id} .msp-unit-move {
+    border:1px solid #9d7b40;
+    border-radius:4px;
+    background:#f6e7c1;
+    color:#4b2d0b;
+    min-width:30px;
+    min-height:30px;
+    padding:2px 7px;
+    font-weight:800;
+    cursor:pointer;
+}
+@media(max-width:760px), (pointer:coarse) {
+    #${APP.id} .msp-unit-mobile-order {
+        display:flex;
+        gap:4px;
+        justify-content:center;
+        margin:0 0 4px;
+    }
+    #${APP.id} .msp-unit-card {
+        touch-action:manipulation;
+    }
+}
+
 `;
 
         $('<style>', { id: APP.styleId }).text(css).appendTo(document.head);
@@ -2199,6 +2225,10 @@
             host.append(`
 <div class="msp-unit-card ${enabled ? '' : 'msp-disabled'}" data-unit="${unit}">
     <span class="msp-order-badge">${config.unitOrder.indexOf(unit) + 1}</span>
+    <div class="msp-unit-mobile-order" aria-label="Priorität ändern">
+        <button type="button" class="msp-unit-move msp-unit-move-up" title="Priorität erhöhen">◀</button>
+        <button type="button" class="msp-unit-move msp-unit-move-down" title="Priorität verringern">▶</button>
+    </div>
     <img src="${unitImage(unit)}" alt="${escapeHtml(meta.label)}">
     <div class="msp-unit-name">${escapeHtml(meta.label)}</div>
     <label><input type="checkbox" class="msp-unit-enabled" ${enabled ? 'checked' : ''}> verwenden</label>
@@ -2220,6 +2250,29 @@
                 }
             }).disableSelection();
         }
+    }
+
+
+    function moveUnitPriority(button, direction) {
+        const card = $(button).closest('.msp-unit-card');
+        if (!card.length) return;
+
+        if (direction < 0) {
+            const prev = card.prev('.msp-unit-card');
+            if (prev.length) card.insertBefore(prev);
+        } else {
+            const next = card.next('.msp-unit-card');
+            if (next.length) card.insertAfter(next);
+        }
+
+        config.unitOrder = $('#mspUnits .msp-unit-card')
+            .map((_, el) => $(el).data('unit'))
+            .get();
+
+        $('#mspUnits .msp-order-badge').each((index, el) => $(el).text(index + 1));
+        saveConfig();
+        updateHeaderSummary();
+        clearPreview();
     }
 
     function renderCategories() {
@@ -2361,6 +2414,17 @@
 
         $('#mspCopyOffToDef').on('click', () => copyTime('offToDef'));
         $('#mspCopyDefToOff').on('click', () => copyTime('defToOff'));
+
+        $('#mspUnits').on('click', '.msp-unit-move-up', function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            moveUnitPriority(this, -1);
+        });
+        $('#mspUnits').on('click', '.msp-unit-move-down', function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            moveUnitPriority(this, 1);
+        });
 
         $('#mspUnits').on('change', '.msp-unit-enabled', function () {
             const card = $(this).closest('.msp-unit-card');
@@ -4977,6 +5041,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         sentGroups: 0,
         droppedCategories: 0,
         statusTimer: null,
+        nextCheckAt: 0,
         serverBusyUntil: [],
         serverReturnByVillage: new Map(),
         waitingVillages: new Map(),
@@ -5006,6 +5071,29 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         return [h,m,sec].map(v => String(v).padStart(2,'0')).join(':');
     }
 
+    function autoCheckCountdownLabel() {
+        if (!AUTO.running || !AUTO.nextCheckAt) return '';
+        const remaining = Math.max(0, AUTO.nextCheckAt - Date.now());
+        const total = Math.ceil(remaining / 1000);
+        const h = Math.floor(total / 3600);
+        const m = Math.floor((total % 3600) / 60);
+        const s = total % 60;
+        return h > 0
+            ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+            : `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    }
+
+    function autoRefreshNextCheckDisplay() {
+        if (!AUTO.running || !AUTO.nextCheckAt) {
+            AUTO.nextCheckAt = 0;
+        $('#mspAutoNext').text('Nächster Check: —');
+            return;
+        }
+        const next = new Date(AUTO.nextCheckAt);
+        const label = next.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+        $('#mspAutoNext').text(`Nächster Check: ${label} · in ${autoCheckCountdownLabel()}`);
+    }
+
     function autoUpdateStatus(extra) {
         const runtime = AUTO.startedAt ? autoDuration(Date.now() - AUTO.startedAt) : '00:00:00';
         const occupied = AUTO.busy.size;
@@ -5016,6 +5104,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         $('#mspAutoCycleStat').text(`🔄 ${AUTO.cycles}`);
         $('#mspAutoBusyStat').text(`📦 ${occupied}`);
         updateAutomateDeadlineBadge();
+        autoRefreshNextCheckDisplay();
     }
 
     function autoTime() {
@@ -5444,6 +5533,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         autoLog(`🛑 Autopilot-Endzeit erreicht (${when}) · Autopilot wird vollständig beendet.`);
         autoStop(true);
         $('#mspAutoState').text(`🛑 Deadline erreicht · Autopilot beendet · 🚀 ${AUTO.launched} · 🔄 ${AUTO.cycles}`);
+        AUTO.nextCheckAt = 0;
         $('#mspAutoNext').text('Nächster Check: —');
     }
 
@@ -5475,10 +5565,11 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
             delay = Math.min(delay, Math.max(250, AUTO.stopDeadlineAt - now));
         }
 
-        const next = new Date(now + delay);
-        const label = next.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
-        $('#mspAutoNext').text(`Nächster Check: ${label}`);
+        AUTO.nextCheckAt = now + delay;
+        autoRefreshNextCheckDisplay();
         AUTO.timer = setTimeout(function () {
+            AUTO.nextCheckAt = 0;
+            autoRefreshNextCheckDisplay();
             if (autoDeadlineReached()) {
                 autoStopAtDeadline();
                 return;
