@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.37
+// MassScavengePlusAutomate v1.3.38
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.37',
+        version: '1.3.38',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -5953,10 +5953,53 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         try {
             const doc = root?.nodeType === 9 ? root : (root?.ownerDocument || document);
             const scope = root;
+            const isLiveDocument = doc === document;
 
             const isInsideOwnUi = (el) => {
                 if (!el || !el.closest) return false;
-                return !!el.closest(`#${APP.id}, #${APP.modalId}, #mspFakeBotProtection`);
+                return !!el.closest(`#${APP.id}, #${APP.modalId}`);
+            };
+
+            // Auf Mobilgeräten liegen teils inaktive/unsichtbare Captcha-/Bot-Elemente
+            // bereits im DOM. Diese dürfen NICHT als aktiver Botschutz gelten.
+            const isActuallyVisible = (el) => {
+                if (!el || !isLiveDocument) return true;
+                if (isInsideOwnUi(el)) return false;
+                if (el.hidden || el.getAttribute?.('aria-hidden') === 'true') return false;
+
+                let node = el;
+                while (node && node.nodeType === 1) {
+                    const style = window.getComputedStyle?.(node);
+                    if (style && (
+                        style.display === 'none' ||
+                        style.visibility === 'hidden' ||
+                        Number(style.opacity) === 0
+                    )) return false;
+                    if (node.hidden || node.getAttribute?.('aria-hidden') === 'true') return false;
+                    node = node.parentElement;
+                }
+
+                const rect = el.getBoundingClientRect?.();
+                if (rect && rect.width <= 1 && rect.height <= 1) return false;
+                return true;
+            };
+
+            const textSignals = [
+                'botschutz',
+                'bot-schutz',
+                'bot protection',
+                'sicherheitsüberprüfung',
+                'sicherheitspr\u00fcfung',
+                'bitte bestätige, dass du kein bot bist',
+                'bitte best\u00e4tige, dass du kein bot bist',
+                'verdächtige aktivität',
+                'verd\u00e4chtige aktivit\u00e4t'
+            ];
+
+            const hasChallengeText = (el) => {
+                const txt = String(el?.innerText || el?.textContent || '').trim().toLowerCase();
+                if (!txt || txt.length > 1800) return false;
+                return textSignals.some(sig => txt.includes(sig));
             };
 
             const selectorSignals = [
@@ -5974,42 +6017,41 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
             for (const sel of selectorSignals) {
                 let nodes = [];
                 try { nodes = Array.from(scope.querySelectorAll?.(sel) || []); } catch (_) {}
-                const hit = nodes.find(el => !isInsideOwnUi(el));
-                if (hit) {
-                    return { detected: true, reason: `DOM-Signal ${sel}` };
+
+                for (const el of nodes) {
+                    if (isInsideOwnUi(el)) continue;
+
+                    if (isLiveDocument) {
+                        // Live-Seite: Nur ein tatsächlich sichtbares Challenge-Element zählt.
+                        if (!isActuallyVisible(el)) continue;
+                        return { detected: true, reason: `sichtbares DOM-Signal ${sel}` };
+                    }
+
+                    // Frisch geladene HTML-Seite ohne Layout:
+                    // Ein bloßer inaktiver Captcha-Platzhalter reicht nicht.
+                    // Zusätzlich muss im Element/nahen Container Challenge-Text stehen.
+                    const nearby = el.closest?.('form,dialog,section,div') || el;
+                    if (hasChallengeText(el) || hasChallengeText(nearby)) {
+                        return { detected: true, reason: `DOM-Signal ${sel} mit Botschutz-Text` };
+                    }
                 }
             }
 
-            // Keine Volltextsuche mehr über die komplette Seite.
-            // Nur kompakte, sichtbare Spiel-Elemente außerhalb unseres Fensters prüfen.
-            const textSignals = [
-                'botschutz',
-                'bot-schutz',
-                'bot protection',
-                'sicherheitsüberprüfung',
-                'sicherheitspr\u00fcfung',
-                'bitte bestätige, dass du kein bot bist',
-                'bitte best\u00e4tige, dass du kein bot bist',
-                'verdächtige aktivität',
-                'verd\u00e4chtige aktivit\u00e4t'
-            ];
-
+            // Textprüfung nur auf sichtbaren, kompakten Elementen außerhalb unseres Fensters.
             const candidates = Array.from(scope.querySelectorAll?.(
                 'div,section,form,dialog,table,td,span,p,h1,h2,h3'
             ) || []);
 
             for (const el of candidates) {
                 if (isInsideOwnUi(el)) continue;
+                if (isLiveDocument && !isActuallyVisible(el)) continue;
 
-                const style = doc.defaultView?.getComputedStyle?.(el);
-                if (style && (style.display === 'none' || style.visibility === 'hidden')) continue;
-
-                const txt = String(el.innerText || '').trim().toLowerCase();
+                const txt = String(el.innerText || el.textContent || '').trim().toLowerCase();
                 if (!txt || txt.length > 1200) continue;
 
                 const hit = textSignals.find(sig => txt.includes(sig));
                 if (hit) {
-                    return { detected: true, reason: `Textsignal „${hit}“` };
+                    return { detected: true, reason: `sichtbares Textsignal „${hit}“` };
                 }
             }
 
@@ -6018,6 +6060,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
             return { detected: false, reason: '' };
         }
     }
+
 
     function handleBotProtection(reason = 'Botschutz erkannt') {
         if (AUTO.botProtectionDetected) return;
@@ -6068,20 +6111,13 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
     // Testet nur unseren Schutzmechanismus mit einem lokalen Fake-Botschutz.
     // Es wird kein echter Botschutz gelöst oder umgangen.
     function simulateBotProtectionGuard() {
-        const fake = document.createElement('div');
-        fake.id = 'mspFakeBotProtection';
+        const testDoc = document.implementation.createHTMLDocument('MSP BotGuard Test');
+        const fake = testDoc.createElement('div');
         fake.className = 'bot-protection captcha';
-        fake.style.position = 'fixed';
-        fake.style.left = '-9999px';
-        fake.style.top = '0';
-        fake.style.width = '1px';
-        fake.style.height = '1px';
-        fake.style.overflow = 'hidden';
-        fake.textContent = 'Botschutz – Sicherheitsüberprüfung – Captcha';
-        document.body.appendChild(fake);
+        fake.textContent = 'Botschutz – Sicherheitsüberprüfung – bitte bestätige, dass du kein Bot bist';
+        testDoc.body.appendChild(fake);
 
-        const result = detectBotProtection(document);
-        fake.remove();
+        const result = detectBotProtection(testDoc);
 
         if (result.detected) {
             autoLog(`  🧪 Botschutz-Guard-Simulation erfolgreich · ${result.reason}`);
@@ -6091,6 +6127,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         autoLog('  ⚠️ Botschutz-Guard-Simulation fehlgeschlagen · Fake-Signal wurde nicht erkannt.');
         return false;
     }
+
 
     function autoStart() {
         try {
