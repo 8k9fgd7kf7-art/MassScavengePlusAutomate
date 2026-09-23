@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.35
+// MassScavengePlusAutomate v1.3.36
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.35',
+        version: '1.3.36',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -2033,7 +2033,7 @@
         <section class="msp-panel" id="mspTimePanel">
             <div class="msp-panel-title">🕰️ Zeitsteuerung</div>
             <div class="msp-panel-content">
-                <div class="msp-time-block">
+                <div class="msp-time-block msp-normal-time-block">
                     <div class="msp-time-mode-row msp-time-topline">
                         <span class="msp-time-block-title msp-time-block-title-inline msp-endless-hide">Raubzüge <span class="msp-info-hint" title="Lege Rückkehrzeit oder Laufzeit für Off- und Def-Dörfer fest.">ⓘ</span></span>
                         <label class="msp-endless-hide"><input type="radio" name="mspTimeMode" value="return"> Rückkehrzeit</label>
@@ -2088,7 +2088,14 @@
                     <div class="msp-time-mode-row" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
                         <label><input type="radio" name="mspAutoEndMode" value="raid"> Bis Raubzug-Ende</label>
                         <label><input type="radio" name="mspAutoEndMode" value="endless"> Endlos · manuell stoppen</label>
-                        <label style="display:flex;align-items:center;gap:5px;">
+                        <span class="msp-endless-inline-max msp-hidden" style="align-items:center;gap:5px;margin-left:auto;">
+                            <span style="opacity:.55;">|</span>
+                            <b>Max. je Raubzug:</b>
+                            <input id="mspAutoMaxRaidHoursEndlessInline" type="number" min="0.1" max="24" step="0.25"
+                                value="${escapeHtml(String(AUTO.maxRaidHours))}" style="width:64px;"> Std.
+                            <span class="msp-info-hint" title="Im Endlosmodus bestimmt dieser Wert die maximale Laufzeit jedes neu gestarteten Raubzugs.">ⓘ</span>
+                        </span>
+                        <label class="msp-runtime-warning-control" style="display:flex;align-items:center;gap:5px;">
                             <b>Warnung ab:</b>
                             <input id="mspRuntimeWarningHours" type="number" min="0.1" max="72" step="0.5"
                                 value="${escapeHtml(String(AUTO.runtimeWarningHours))}" style="width:72px;"> Std.
@@ -2563,10 +2570,20 @@
 
     function updateEndlessModeUi() {
         const endless = $('input[name="mspAutoEndMode"]:checked').val() === 'endless';
-        $('.msp-endless-hide').toggleClass('msp-hidden', endless);
 
-        // Schnellwahl-Personalisierung schließen, falls sie beim Wechsel
-        // in den Endlosmodus noch offen war.
+        // Endlos: die komplette normale Raubzug-Zeitbox verschwindet.
+        // Max. je Raubzug wandert kompakt in die Autopilot-Zeile.
+        $('.msp-normal-time-block').toggleClass('msp-hidden', endless);
+        $('.msp-runtime-warning-control').toggleClass('msp-hidden', endless);
+        $('.msp-endless-inline-max').toggleClass('msp-hidden', !endless).css('display', endless ? 'inline-flex' : '');
+
+        const current = Math.max(0.1, Math.min(24,
+            Number($('#mspAutoMaxRaidHoursEndlessInline').val()) ||
+            Number($('#mspAutoMaxRaidHours').val()) ||
+            Number(AUTO.maxRaidHours) || 4
+        ));
+        $('#mspAutoMaxRaidHours,#mspAutoMaxRaidHoursEndlessInline').val(current);
+
         if (endless) $('#mspQuickModal').remove();
     }
 
@@ -2582,6 +2599,7 @@
 
         if ($('input[name="mspAutoEndMode"]:checked').val() === 'endless') {
             const hours = Math.max(0.1, Math.min(24,
+                Number($('#mspAutoMaxRaidHoursEndlessInline').val()) ||
                 Number($('#mspAutoMaxRaidHours').val()) ||
                 Number(AUTO.maxRaidHours) || 4
             ));
@@ -3085,6 +3103,7 @@
     }
 
     function confirmExtremeRuntime(times, context='Berechnung') {
+        if ($('input[name="mspAutoEndMode"]:checked').val() === 'endless') return true;
         const maxHours = Math.max(Number(times?.off || 0), Number(times?.def || 0));
         const warningHours = Math.max(0.1, Number(AUTO.runtimeWarningHours) || 20);
         if (maxHours < warningHours) return true;
@@ -5474,8 +5493,11 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         const now = serverDateMs;
 
         AUTO.autopilotEndMode = $('input[name="mspAutoEndMode"]:checked').val() === 'endless' ? 'endless' : 'raid';
-        AUTO.maxRaidHours = Math.max(0.1, Math.min(24, safeFloat($('#mspAutoMaxRaidHours').val(), AUTO.maxRaidHours || 4, 0.1, 24)));
-        $('#mspAutoMaxRaidHours').val(AUTO.maxRaidHours);
+        const maxRaidInput = AUTO.autopilotEndMode === 'endless'
+            ? $('#mspAutoMaxRaidHoursEndlessInline')
+            : $('#mspAutoMaxRaidHours');
+        AUTO.maxRaidHours = Math.max(0.1, Math.min(24, safeFloat(maxRaidInput.val(), AUTO.maxRaidHours || 4, 0.1, 24)));
+        $('#mspAutoMaxRaidHours,#mspAutoMaxRaidHoursEndlessInline').val(AUTO.maxRaidHours);
         AUTO.planMode = AUTO.autopilotEndMode === 'endless' ? 'runtime' : (mode === 'runtime' ? 'runtime' : 'return');
         localStorage.setItem('msp_automate_max_raid_hours', String(AUTO.maxRaidHours));
 
@@ -6573,7 +6595,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
             updateAutomateDeadlineBadge();
         });
 
-        $('#mspAutoMaxRaidHours')
+        $('#mspAutoMaxRaidHours,#mspAutoMaxRaidHoursEndlessInline')
             .on('input', function () {
                 // Darf beim Tippen kurz leer sein.
             })
@@ -6582,7 +6604,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                 let value = Number(raw);
                 if (!raw || !Number.isFinite(value)) value = Number(AUTO.maxRaidHours) || 4;
                 value = Math.max(0.1, Math.min(24, value));
-                $('#mspAutoMaxRaidHours').val(value);
+                $('#mspAutoMaxRaidHours,#mspAutoMaxRaidHoursEndlessInline').val(value);
                 AUTO.maxRaidHours = value;
                 localStorage.setItem('msp_automate_max_raid_hours', String(value));
                 updateDurationHints();
