@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.32
+// MassScavengePlusAutomate v1.3.33
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.32',
+        version: '1.3.33',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -2084,20 +2084,16 @@
                 </div>
 
                 <div class="msp-time-block">
-                    <div class="msp-auto-stop-compact-head">
-                        <div class="msp-time-block-title">🔴 Autopilot-Ende <span class="msp-info-hint" title="Bis zu diesem Zeitpunkt darf der Autopilot neue Aufträge starten. Laufende Raubzüge kehren normal zurück.">ⓘ</span></div>
-                        <div class="msp-auto-time-control-inputs">
-                            <input id="mspAutoStopDate" type="date"><input id="mspAutoStopTime" type="time">
-                        </div>
-                    </div>
-                    <div class="msp-quick-unified">
-                        <div class="msp-quick-unified-row">
-                            <div class="msp-quick-inline-main">
-                                <span class="msp-quick-purpose-title">🛑 Schnellwahl Autopilot-Ende</span>
-                                <div id="mspAutoStopQuickButtons" aria-label="Schnellwahl Autopilot-Ende"></div>
-                            </div>
-                            <button type="button" class="msp-btn msp-btn-secondary msp-quick-personalize" id="mspAutoStopQuickSettingsBtn" title="Schnellbuttons einstellen, umbenennen und sortieren">⚙ Personalisieren</button>
-                        </div>
+                    <div class="msp-time-block-title">🤖 Autopilot <span class="msp-info-hint" title="Bis Raubzug-Ende: stoppt automatisch mit dem festgelegten Raubzug-Zeitraum. Endlos: läuft weiter, bis du manuell stoppst. Die maximale Laufzeit je einzelnem Raubzug gilt immer.">ⓘ</span></div>
+                    <div class="msp-time-mode-row" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+                        <label><input type="radio" name="mspAutoEndMode" value="raid"> Bis Raubzug-Ende</label>
+                        <label><input type="radio" name="mspAutoEndMode" value="endless"> Endlos · manuell stoppen</label>
+                        <label style="display:flex;align-items:center;gap:5px;">
+                            <b>Warnung ab:</b>
+                            <input id="mspRuntimeWarningHours" type="number" min="0.1" max="72" step="0.5"
+                                value="${escapeHtml(String(AUTO.runtimeWarningHours))}" style="width:72px;"> Std.
+                            <span class="msp-info-hint" title="Nur eine Warnschwelle. Sie stoppt nichts und verändert keine Berechnung.">ⓘ</span>
+                        </label>
                     </div>
                 </div>
             </div>
@@ -2705,8 +2701,8 @@
         return {
             bundleMinutes,
             maxRaidHours,
-            stopDate: String(localStorage.getItem('msp_automate_stop_date') || $('#mspAutoStopDate').val() || ''),
-            stopTime: String(localStorage.getItem('msp_automate_stop_time') || $('#mspAutoStopTime').val() || '')
+            runtimeWarningHours: Math.max(0.1, Number(localStorage.getItem('msp_automate_runtime_warning_hours') ?? AUTO.runtimeWarningHours ?? 20)),
+            autopilotEndMode: localStorage.getItem('msp_automate_end_mode') === 'endless' ? 'endless' : 'raid'
         };
     }
 
@@ -3071,15 +3067,17 @@
 
     function confirmExtremeRuntime(times, context='Berechnung') {
         const maxHours = Math.max(Number(times?.off || 0), Number(times?.def || 0));
-        if (maxHours < 20) return true;
+        const warningHours = Math.max(0.1, Number(AUTO.runtimeWarningHours) || 20);
+        if (maxHours < warningHours) return true;
         return confirm(
             `⚠ UNGEWÖHNLICH LANGE LAUFZEIT\n\n` +
             `${context}: Off ${safetyRuntimeLabel(times.off)} · Def ${safetyRuntimeLabel(times.def)}\n\n` +
-            `Mindestens eine Laufzeit beträgt 20 Stunden oder mehr.\n` +
+            `Mindestens eine Laufzeit beträgt ${safetyRuntimeLabel(warningHours)} oder mehr.\n` +
             `Bitte prüfe besonders „Heute/Morgen“ und die eingestellte Uhrzeit.\n\n` +
             `Trotzdem fortfahren?`
         );
     }
+
 
     function applyQuickPreset(index) {
         const item = config.quickButtons?.[index];
@@ -5057,6 +5055,8 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         runtimeOffHours: 4,
         runtimeDefHours: 4,
         maxRaidHours: Math.max(0.1, Number(localStorage.getItem('msp_automate_max_raid_hours') || 4)),
+        runtimeWarningHours: Math.max(0.1, Number(localStorage.getItem('msp_automate_runtime_warning_hours') || 20)),
+        autopilotEndMode: localStorage.getItem('msp_automate_end_mode') === 'endless' ? 'endless' : 'raid',
         runtimeSafetyMs: 30000,
         runtimeClamped: 0,
         runtimeRejected: 0
@@ -5459,6 +5459,13 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
         $('#mspAutoMaxRaidHours').val(AUTO.maxRaidHours);
         localStorage.setItem('msp_automate_max_raid_hours', String(AUTO.maxRaidHours));
 
+        AUTO.runtimeWarningHours = Math.max(0.1, Math.min(72, safeFloat($('#mspRuntimeWarningHours').val(), AUTO.runtimeWarningHours || 20, 0.1, 72)));
+        $('#mspRuntimeWarningHours').val(AUTO.runtimeWarningHours);
+        localStorage.setItem('msp_automate_runtime_warning_hours', String(AUTO.runtimeWarningHours));
+
+        AUTO.autopilotEndMode = $('input[name="mspAutoEndMode"]:checked').val() === 'endless' ? 'endless' : 'raid';
+        localStorage.setItem('msp_automate_end_mode', AUTO.autopilotEndMode);
+
         if (AUTO.planMode === 'runtime') {
             AUTO.runtimeOffHours = safeFloat($('#mspOffRuntime').val(), NaN, 0.01);
             AUTO.runtimeDefHours = safeFloat($('#mspDefRuntime').val(), NaN, 0.01);
@@ -5471,22 +5478,28 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
             AUTO.deadlineLabel = 'feste Rückkehrgrenze der Aufträge';
         }
 
-        const stopAt = autoReadStopDeadlineInput();
-        if (!Number.isFinite(stopAt) || stopAt <= now) {
-            throw new Error('„Autopilot läuft bis“ muss in der Zukunft liegen.');
+        if (AUTO.autopilotEndMode === 'endless') {
+            AUTO.stopDeadlineAt = 0;
+        } else if (AUTO.planMode === 'runtime') {
+            const maxRuntime = Math.max(Number(AUTO.runtimeOffHours) || 0, Number(AUTO.runtimeDefHours) || 0);
+            if (!(maxRuntime > 0)) throw new Error('Für „Bis Raubzug-Ende“ muss eine gültige Laufzeit eingestellt sein.');
+            AUTO.stopDeadlineAt = now + Math.min(maxRuntime, AUTO.maxRaidHours) * 3600000;
+        } else {
+            const candidates = [AUTO.deadlineOffAt, AUTO.deadlineDefAt].filter(ts => Number.isFinite(ts) && ts > now);
+            if (!candidates.length) throw new Error('Für „Bis Raubzug-Ende“ muss eine Rückkehrzeit in der Zukunft liegen.');
+            AUTO.stopDeadlineAt = Math.max(...candidates);
         }
-        AUTO.stopDeadlineAt = stopAt;
-        localStorage.setItem('msp_automate_stop_date', String($('#mspAutoStopDate').val() || ''));
-        localStorage.setItem('msp_automate_stop_time', String($('#mspAutoStopTime').val() || ''));
 
         return {
             offAt: AUTO.deadlineOffAt,
             defAt: AUTO.deadlineDefAt,
             stopAt: AUTO.stopDeadlineAt,
             mode: AUTO.planMode,
-            maxRaidHours: AUTO.maxRaidHours
+            maxRaidHours: AUTO.maxRaidHours,
+            autopilotEndMode: AUTO.autopilotEndMode
         };
     }
+
 
     function autoFrozenTimes() {
         serverDateMs = parseServerDate();
@@ -6356,44 +6369,49 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
 
     function updateAutomateDeadlineBadge() {
         serverDateMs = parseServerDate();
-        const stopAt = autoReadStopDeadlineInput();
+        const selectedMode = $('input[name="mspAutoEndMode"]:checked').val() || AUTO.autopilotEndMode || 'raid';
+
+        if (selectedMode === 'endless' || (AUTO.running && AUTO.autopilotEndMode === 'endless')) {
+            $('#mspAutoStopSummary').text('🟢 Endlos');
+            $('#mspAutoDeadlineRemaining').text('manuell stoppen');
+            return;
+        }
+
+        let stopAt = AUTO.running ? AUTO.stopDeadlineAt : 0;
+        if (!AUTO.running) {
+            const planMode = $('input[name="mspTimeMode"]:checked').val();
+            if (planMode === 'runtime') {
+                const off = Number($('#mspOffRuntime').val()) || 0;
+                const def = Number($('#mspDefRuntime').val()) || 0;
+                const maxRaid = Math.max(0.1, Number($('#mspAutoMaxRaidHours').val()) || AUTO.maxRaidHours || 4);
+                const hours = Math.min(Math.max(off, def), maxRaid);
+                if (hours > 0) stopAt = serverDateMs + hours * 3600000;
+            } else {
+                const offAt = parseLocalDateTime($('#mspOffDate').val(), $('#mspOffTime').val());
+                const defAt = parseLocalDateTime($('#mspDefDate').val(), $('#mspDefTime').val());
+                stopAt = Math.max(Number.isFinite(offAt) ? offAt : 0, Number.isFinite(defAt) ? defAt : 0);
+            }
+        }
+
         if (Number.isFinite(stopAt) && stopAt > serverDateMs) {
             const d = new Date(stopAt);
             const stopLabel = `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
             $('#mspAutoStopSummary').text(`🛑 Stop ${stopLabel}`);
             $('#mspAutoDeadlineRemaining').text(`noch ${safetyRuntimeLabel((stopAt - serverDateMs) / 3600000)}`);
         } else {
-            $('#mspAutoStopSummary').text('🛑 Stop —');
-            $('#mspAutoDeadlineRemaining').text('Ende wählen');
+            $('#mspAutoStopSummary').text('🛑 Bis Raubzug-Ende');
+            $('#mspAutoDeadlineRemaining').text('Zeit prüfen');
         }
     }
 
     function initAutomateStopInputs() {
-        serverDateMs = parseServerDate();
-        let date = localStorage.getItem('msp_automate_stop_date') || '';
-        let time = localStorage.getItem('msp_automate_stop_time') || '';
-
-        let stored = parseLocalDateTime(date, time);
-        if (!(stored > serverDateMs)) {
-            // Als erste sinnvolle Vorgabe die aktuell eingestellte späteste Rückkehrzeit übernehmen.
-            const offAt = parseLocalDateTime($('#mspOffDate').val(), $('#mspOffTime').val());
-            const defAt = parseLocalDateTime($('#mspDefDate').val(), $('#mspDefTime').val());
-            const candidate = Math.max(
-                Number.isFinite(offAt) ? offAt : 0,
-                Number.isFinite(defAt) ? defAt : 0
-            );
-            const fallback = candidate > serverDateMs
-                ? new Date(candidate)
-                : new Date(serverDateMs + 8 * 3600000);
-            const parts = dateParts(fallback);
-            date = parts.date;
-            time = parts.time;
-        }
-
-        $('#mspAutoStopDate').val(date);
-        $('#mspAutoStopTime').val(time);
+        AUTO.autopilotEndMode = localStorage.getItem('msp_automate_end_mode') === 'endless' ? 'endless' : 'raid';
+        AUTO.runtimeWarningHours = Math.max(0.1, Math.min(72, Number(localStorage.getItem('msp_automate_runtime_warning_hours') || AUTO.runtimeWarningHours || 20)));
+        $(`input[name="mspAutoEndMode"][value="${AUTO.autopilotEndMode}"]`).prop('checked', true);
+        $('#mspRuntimeWarningHours').val(AUTO.runtimeWarningHours);
         updateAutomateDeadlineBadge();
     }
+
 
     function initAutomatePanel() {
         const root = $(`#${APP.id}`);
@@ -6496,20 +6514,25 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
             }
         });
 
-        renderAutoStopQuickButtons();
-
-        $('#mspAutoStopQuickButtons').on('click', '.msp-auto-stop-preset', function () {
-            const index = Number($(this).data('index'));
-            const item = config.stopQuickButtons?.[index];
-            if (!item) return;
-            applyAutoStopPreset(item.type, item.value);
+        $('input[name="mspAutoEndMode"]').on('change', function () {
+            AUTO.autopilotEndMode = $(this).val() === 'endless' ? 'endless' : 'raid';
+            localStorage.setItem('msp_automate_end_mode', AUTO.autopilotEndMode);
+            updateAutomateDeadlineBadge();
         });
 
-        $('#mspAutoStopQuickSettingsBtn').on('click', openAutoStopQuickSettingsModal);
+        $('#mspRuntimeWarningHours')
+            .on('input', function () {})
+            .on('change blur', function () {
+                const raw = String($(this).val() ?? '').trim();
+                let value = Number(raw);
+                if (!raw || !Number.isFinite(value)) value = Number(AUTO.runtimeWarningHours) || 20;
+                value = Math.max(0.1, Math.min(72, value));
+                $(this).val(value);
+                AUTO.runtimeWarningHours = value;
+                localStorage.setItem('msp_automate_runtime_warning_hours', String(value));
+            });
 
-        $('#mspAutoStopDate,#mspAutoStopTime').on('input change', function () {
-            localStorage.setItem('msp_automate_stop_date', String($('#mspAutoStopDate').val() || ''));
-            localStorage.setItem('msp_automate_stop_time', String($('#mspAutoStopTime').val() || ''));
+        $('#mspOffDate,#mspOffTime,#mspDefDate,#mspDefTime,#mspOffRuntime,#mspDefRuntime,input[name="mspTimeMode"]').on('change input', function () {
             updateAutomateDeadlineBadge();
         });
 
@@ -6530,6 +6553,7 @@ ${warnings.map(text => `<div class="msp-warning">${escapeHtml(text)}</div>`).joi
                 $(this).val(value);
                 AUTO.maxRaidHours = value;
                 localStorage.setItem('msp_automate_max_raid_hours', String(value));
+                updateAutomateDeadlineBadge();
             });
 
         initAutomateStopInputs();
