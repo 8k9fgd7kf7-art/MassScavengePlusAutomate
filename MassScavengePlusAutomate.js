@@ -1,4 +1,4 @@
-// MassScavengePlusAutomate v1.3.36
+// MassScavengePlusAutomate v1.3.37
 (function(){
 'use strict';
 
@@ -49,7 +49,7 @@
         id: 'massScavengePlusV2',
         styleId: 'massScavengePlusV2Style',
         modalId: 'massScavengePlusV2Modal',
-        version: '1.3.36',
+        version: '1.3.37',
         storageKey: 'massScavengePlusV2.config',
         villageTypeStorageKey: 'massScavengePlusV2.villageTypes',
         sessionStorageKey: 'massScavengePlusV2.sessions',
@@ -2759,6 +2759,43 @@
         };
     }
 
+    // Kompaktes, WhatsApp-taugliches Austauschformat.
+    // Kurze Schlüssel + JSON ohne Einrückung; der Import akzeptiert weiterhin auch alte Voll-Exporte.
+    function buildCompactSettingsExport() {
+        const full = buildFullSettingsExport();
+        return {
+            f: 'MSP1',
+            c: full.config,
+            a: {
+                b: Number(full.automate?.bundleMinutes ?? 10),
+                m: Number(full.automate?.maxRaidHours ?? 4),
+                w: Number(full.automate?.runtimeWarningHours ?? 20),
+                e: full.automate?.autopilotEndMode === 'endless' ? 'e' : 'r'
+            },
+            u: full.uiState,
+            v: full.villageTypeOverrides
+        };
+    }
+
+    function expandCompactSettingsExport(raw) {
+        if (!raw || raw.f !== 'MSP1') return raw;
+        return {
+            exportFormat: FULL_EXPORT_FORMAT,
+            exportVersion: FULL_EXPORT_VERSION,
+            appVersion: APP.version,
+            config: raw.c || {},
+            automate: {
+                bundleMinutes: Number(raw.a?.b ?? 10),
+                maxRaidHours: Number(raw.a?.m ?? 4),
+                runtimeWarningHours: Number(raw.a?.w ?? 20),
+                autopilotEndMode: raw.a?.e === 'e' ? 'endless' : 'raid'
+            },
+            uiState: raw.u || {},
+            villageTypeOverrides: raw.v || {}
+        };
+    }
+
+
     function normalizeImportedUiState(raw) {
         return {
             collapsed: raw && typeof raw.collapsed === 'object' && !Array.isArray(raw.collapsed) ? { ...raw.collapsed } : {},
@@ -2799,6 +2836,7 @@
     }
 
     function importSettingsPayload(imported) {
+        raw = expandCompactSettingsExport(raw);
         if (imported && imported.exportFormat === FULL_EXPORT_FORMAT && Number(imported.exportVersion) >= 1 && imported.config && typeof imported.config === 'object') {
             config = normalizeConfig(imported.config);
             saveConfig();
@@ -2823,7 +2861,7 @@
 
     function openSettingsModal() {
         document.getElementById(APP.modalId)?.remove();
-        const exportText = JSON.stringify(buildFullSettingsExport(), null, 2);
+        const exportText = JSON.stringify(buildCompactSettingsExport());
 
         const modal = $(`
 <div id="${APP.modalId}">
@@ -2831,15 +2869,16 @@
         <div class="msp-modal-head"><span>Mass Scavenge+ Einstellungen</span><button class="msp-btn msp-btn-danger msp-btn-icon" id="mspModalClose">✕</button></div>
         <div class="msp-modal-body">
             <label style="display:block;margin-bottom:8px;"><input type="checkbox" id="mspRememberPosition" ${config.ui.rememberPosition ? 'checked' : ''}> Fensterposition merken</label>
-            <div style="font-weight:bold;margin-bottom:5px;">Vollständige Konfiguration exportieren / importieren</div>
+            <div style="font-weight:bold;margin-bottom:5px;">Einstellungen übertragen</div>
             <div style="font-size:11px;margin:0 0 7px;padding:7px 8px;border:1px solid #c9ad72;border-radius:4px;background:#fff7df;">
                 Enthält Truppen, Reserven, Verteilung, Zeitsteuerung, beide Schnellbutton-Gruppen,
                 Bündelung, Maximaldauer je Raubzug, Autopilot-Ende, Dorf-Typen sowie UI-/Fenstereinstellungen.
                 <b>Nicht enthalten:</b> laufender Autopilot, Protokoll und Session-Historie.
             </div>
+            <div style="font-size:11px;opacity:.8;margin-bottom:5px;">📱 Kompaktformat für WhatsApp/geräteübergreifendes Kopieren. Alte Exporttexte können weiterhin importiert werden.</div>
             <textarea id="mspConfigText">${escapeHtml(exportText)}</textarea>
             <div class="msp-modal-actions">
-                <button class="msp-btn msp-btn-secondary" id="mspCopyConfig">In Zwischenablage kopieren</button>
+                <button class="msp-btn msp-btn-secondary" id="mspCopyConfig">📱 Kompakt kopieren</button>
                 <button class="msp-btn msp-btn-success" id="mspImportConfig">Konfiguration importieren</button>
                 <button class="msp-btn msp-btn-danger" id="mspResetAll">Alles zurücksetzen</button>
             </div>
@@ -2868,13 +2907,15 @@
         });
 
         $('#mspCopyConfig').on('click', async () => {
+            const compactText = JSON.stringify(buildCompactSettingsExport());
+            $('#mspConfigText').val(compactText);
             try {
-                await navigator.clipboard.writeText($('#mspConfigText').val());
-                notifySuccess('Vollständige Konfiguration kopiert.');
+                await navigator.clipboard.writeText(compactText);
+                notifySuccess(`Kompakte Einstellungen kopiert (${compactText.length} Zeichen).`);
             } catch {
                 $('#mspConfigText')[0].select();
                 document.execCommand('copy');
-                notifySuccess('Vollständige Konfiguration kopiert.');
+                notifySuccess(`Kompakte Einstellungen kopiert (${compactText.length} Zeichen).`);
             }
         });
 
